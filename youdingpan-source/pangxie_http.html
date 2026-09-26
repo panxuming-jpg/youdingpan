@@ -1,0 +1,207 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="format-detection" content="telephone=no">
+<meta name="renderer" content="webkit">
+<title>pangxie.com</title>
+<link rel="stylesheet" href="https://static.dnparking.com/static/css/exhibition.css?v1.0.2" />
+<link rel="stylesheet" href="https://static.dnparking.com/static/css/apply-form.css?v=1.0.0" />
+<script type="text/javascript" src="https://static.dnparking.com/js/jquery.min.js"></script>
+<script type="text/javascript" src="https://static.dnparking.com/js2/layer/layer.js"></script>
+<script type="text/javascript" src="https://static.dnparking.com/js2/exhibition.js?v1.0.5"></script>
+<style type="text/css">
+.lang-cn {}
+.lang-en {display: none;}
+.vip-qrcode img {
+    width: 400px;
+    margin-top: 50px;
+}
+.wechat-qrcode img {
+    width: 360px;
+    margin-top: 20px;
+}
+.container {
+	background-image: url(https://parking.taoming.com/images/trial/201612/bg-4265583f9be06c66c.jpeg);
+}
+.container .logo {
+	top: 25.00%;
+	height: 102px;
+	background-size: 166px 102px;
+	background-image: url(https://parking.taoming.com/images/trial/201612/logo-8712583f9be06ce35.png);
+}
+.container .button {
+	top: 66.00%;
+	left: calc(50% - 297px / 2);
+	width: 297px;
+	height: 64px;
+	background-image: url(https://parking.taoming.com/images/trial_button.png);
+}
+.footer {
+	color: #ffffff;
+}
+.footer a {
+	color: #ffffff;
+}
+@media (max-width: 750px) {
+	.container .logo {
+		background-size: 133px 82px !important;
+	}
+}
+.contact_us {
+    font-size: 16px;
+    position: absolute;
+    margin: auto;
+    width: 100%;
+    text-align: center;
+    bottom: 220px;
+    color: #ffffff;
+}
+.contact_us u {cursor: pointer;}
+.contact_us u:hover {color: #ffffff;}
+.lang-switch {
+    color: #ffffff;
+    font-size: 14px;
+    position: absolute;
+    right: 20px;
+    top: 10px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+</style>
+</head>
+<body>
+<div class="container">
+        <div class="lang-switch"><span class="lang-cn" data-toggle>English</span><span class="lang-en" data-toggle>中文</span></div>
+    
+	<div class="logo"></div>
+
+    
+        <div class="contact_us">
+        <span class="lang-cn">本平台寻求合作或整体转让，<u data-app-btn="app-form-2">联系我们</u></span>
+        <span class="lang-en"><u data-app-btn="app-form-2">Contact Us</u></span>
+    </div>
+    
+	</div>
+<div class="app-form-mask hide">
+	<div id="app-form" class="app-form">
+		<div class="close-btn"></div>
+		<p class="title">请填写并提交您的相关信息，</p>
+		<!--<p>添加以下企业微信获取优先会员资格</p>
+        <div class="vip-qrcode">
+            <img src="https://parking.taoming.com/images/vip_clean.jpg" />
+        </div>-->
+		<ul>
+			<li class="clearfix">
+				<div class="label"><label for="name">姓名：</label></div>
+				<div class="field"><input name="name" class="input-text" type="text" placeholder="" /></div>
+			</li>
+			<li class="clearfix">
+				<div class="label"><label for="phone_number">手机号：</label></div>
+				<div class="field"><input name="phone_number" class="input-text" type="text" placeholder="" /></div>
+			</li>
+			<li class="clearfix">
+				<div class="label"><label for="email">电子邮件：</label></div>
+				<div class="field"><input name="email" class="input-text" type="text" placeholder="" /></div>
+			</li>
+			<li class="clearfix">
+				<div class="label"><label for="wechat_id">微信号：</label></div>
+				<div class="field"><input name="wechat_id" class="input-text" type="text" placeholder="" /></div>
+			</li>
+			<li class="clearfix" style="height: 175px;">
+				<div class="label"><label for="remark">主题：</label></div>
+				<div class="field"><textarea name="remark" class="input-text" type="text" placeholder="请填下您的详细需求,以便我们和您及时联系。"></textarea></div>
+			</li>
+            <li class="clearfix">
+                <div class="label"></div>
+                <div class="field">
+                    <input type="checkbox" name="agree" />
+                    我已阅读并同意<a href="/privacy" target="_blank">隐私政策</a>
+                </div>
+            </li>
+			<li class="clearfix">
+				<div class="label hide-small"><input type="hidden" name="siteid" value="42" /></div>
+				<div class="field"><button type="button" class="input-btn" data-submit>提交信息</button></div>
+			</li>
+		</ul>
+	</div>
+    <div id="app-result" class="app-form hide">
+		<div class="close-btn"></div>
+        <p class="title">提交成功，感谢您的申请！</p>
+        <p>请添加以下微信与我们联系</p>
+        <div class="wechat-qrcode">
+            <img src="https://parking.taoming.com/images/vip_qrcode.jpg" />
+        </div>
+        <p>扫描以上二维码</p>
+        <p>或添加微信号 18520056026 </p>
+    </div>
+</div>
+<div class="app-form-mask hide">
+    <div id="app-form-2" class="app-form">
+        <div class="close-btn"></div>
+        <p class="title"><span class="lang-cn">请填写并提交您的相关信息</span><span class="lang-en">Please fill in your information</span></p>
+    <ul>
+    <li class="clearfix">
+        <div class="label"><label for="name-2"><span class="lang-cn">姓名：</span><span class="lang-en">Name: </span></label></div>
+            <div class="field"><input name="name-2" class="input-text" type="text" placeholder="" /></div>
+        </li>
+        <li class="clearfix">
+            <div class="label"><label for="phone_number-2"><span class="lang-cn">手机号：</span><span class="lang-en">Phone NO.: </span></label></div>
+            <div class="field"><input name="phone_number-2" class="input-text" type="text" placeholder="" /></div>
+        </li>
+        <li class="clearfix">
+            <div class="label"><label for="email-2"><span class="lang-cn">电子邮件：</span><span class="lang-en">Email: </span></label></div>
+            <div class="field"><input name="email-2" class="input-text" type="text" placeholder="" /></div>
+        </li>
+        <li class="clearfix">
+            <div class="label"><label for="wechat_id-2"><span class="lang-cn">微信号：</span><span class="lang-en">WhatsApp ID: </span></label></div>
+            <div class="field"><input name="wechat_id-2" class="input-text" type="text" placeholder="" /></div>
+        </li>
+        <li class="clearfix" style="height: 175px;">
+            <div class="label"><label for="remark-2"><span class="lang-cn">主题：</span><span class="lang-en">Subject: </span></label></div>
+            <div class="field"><textarea name="remark-2" class="input-text" type="text" placeholder="请填下您的详细需求，以便我们和您及时联系。"></textarea></div>
+        </li>
+        <li class="clearfix">
+            <div class="label"></div>
+            <div class="field">
+                <input type="checkbox" name="agree-2" />
+                <span class="lang-cn">我已阅读并同意<a href="/privacy" target="_blank">隐私政策</a></span>
+                <span class="lang-en">I agree to the terms of <a href="/privacy" target="_blank">Privacy Policy</a></span>
+            </div>
+        </li>
+        <li class="clearfix">
+            <div class="label hide-small"></div>
+            <div class="field"><button type="button" class="input-btn" data-submit-2><span class="lang-cn">提交信息</span><span class="lang-en">Submit</span></button></div>
+        </li>
+        </ul>
+    </div>
+    <div id="app-result-2" class="app-form hide">
+        <div class="close-btn"></div>
+        <p class="title"><span class="lang-cn">提交成功，感谢您的申请！</span><span class="lang-en">Successfully submitted. Thanks for your application.</span></p>
+        <p><span class="lang-cn">请添加以下微信与我们联系</span><span class="lang-en">Please add the following wechat work for further contact.</span></p>
+        <div class="wechat-qrcode">
+            <img src="https://parking.taoming.com/images/vip_qrcode.jpg" />
+        </div>
+        <p><span class="lang-cn">扫描以上二维码</span>Scan the qrcode<span class="lang-en"></span></p>
+        <p><span class="lang-cn">或添加微信号</span><span class="lang-en">Or add wechat work by number:</span> 18520056026</p>
+    </div>
+</div>
+<script type="text/javascript">
+var islangcn = true;
+$(function() {
+	var script = document.createElement("script");
+	script.src = "https://traffic.dnparking.com:88/analysis.js?d=pangxie.com&_t"+new Date().getTime();
+	document.getElementsByTagName("body")[0].appendChild(script);
+    $('[data-toggle]').click(function() {
+        $('.lang-cn').toggle();
+        $('.lang-en').toggle();
+        islangcn = !islangcn;
+    })      
+});             
+</script>
+</body>
+</html>
