@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Runtime data (crawled game data, never commit)
+server/data/
+server/uploads/
+
+# Build output
+web/dist/
+
+# Deployment packages
+*.zip
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Environment
+.env
+.env.*
