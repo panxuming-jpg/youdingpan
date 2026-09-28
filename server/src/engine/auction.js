@@ -1,9 +1,10 @@
 /**
- * 拍卖结算引擎：到期成交 / 流拍 / 付款超时自动取消 / 延时规则处理
+ * 拍卖结算引擎：到期成交 / 流拍 / 付款超时自动取消 / 延时规则处理 / 发货后自动确认收货
  * 与采集引擎共用同一 SQLite 连接，通过定时器每 5 秒扫描一次到期拍卖
  */
-import { db, parseJSON } from '../db.js';
+import { db, parseJSON, getSettingNum, fundLog } from '../db.js';
 import { pushToUser } from './sse.js';
+import { closePayOrder, sweepTimeoutPayOrders } from '../pay.js';
 
 const SETTLE_INTERVAL = 5000; // 5 秒扫描一次到期拍卖
 
@@ -99,6 +100,26 @@ function settleAuction(a) {
   notify(a.seller_id, 'auction', '拍卖成交', `您的拍卖「${a.title}」已成交，成交价 ¥${top.amount.toFixed(2)}，等待买家付款。`);
 }
 
+// 确认收货结算（买家手动确认 / 超时自动确认共用）：担保资金扣除手续费后转入卖家余额
+function settleOrder(orderId) {
+  const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(orderId);
+  if (!o || o.status !== 'pending_confirm') return false;
+  const now = Date.now();
+  db.prepare(`UPDATE auction_orders SET status='completed', confirmed_at=? WHERE id=?`).run(now, o.id);
+  db.prepare(`UPDATE auctions SET status='completed' WHERE id=?`).run(o.auction_id);
+  const feeRate = getSettingNum('order_fee_rate', 0.05);
+  const fee = Math.max(0, Math.round(o.amount * feeRate * 100) / 100);
+  const net = o.amount - fee;
+  addBalance(o.seller_id, net);
+  const refNo = o.pay_order_no || `ORDER${o.id}`;
+  fundLog({ userId: o.seller_id, biz: 'escrow_settle', amount: net, direction: 'in', refNo, remark: `拍卖订单 #${o.id} 确认收货，担保资金结算` });
+  if (fee > 0) fundLog({ userId: null, biz: 'fee', amount: fee, direction: 'in', refNo, remark: `拍卖订单 #${o.id} 平台手续费` });
+  const a = db.prepare('SELECT title FROM auctions WHERE id=?').get(o.auction_id);
+  notify(o.seller_id, 'auction', '交易完成', `「${a?.title}」买家已确认收货，货款 ¥${net.toFixed(2)}（已扣除手续费 ¥${fee.toFixed(2)}）已到账余额，可申请提现。`);
+  notify(o.buyer_id, 'auction', '交易完成', `「${a?.title}」交易已完成，感谢您的购买。`);
+  return true;
+}
+
 // 扫描并处理所有到期拍卖
 function scanAndSettle() {
   const now = Date.now();
@@ -115,14 +136,25 @@ function scanAndSettle() {
 
   for (const o of timeoutOrders) {
     const deposit = calcDeposit(o.start_price, o.deposit_rate);
-    // 取消订单，扣除买家保证金给卖家
+    // 取消订单，买家违约保证金赔付给卖家
     db.prepare(`UPDATE auction_orders SET status='cancelled' WHERE id=?`).run(o.id);
     db.prepare(`UPDATE auctions SET status='cancelled' WHERE id=?`).run(o.auction_id);
-    deductFrozen(o.buyer_id, deposit);
+    if (o.pay_order_no) closePayOrder(o.pay_order_no, 'closed'); // 同步关闭关联支付单
+    // 注意：成交时买家保证金已从冻结扣至平台托管（settleAuction），此处直接划转卖家，不重复扣减
     addBalance(o.seller_id, deposit);
+    fundLog({ userId: o.seller_id, biz: 'deposit_compensate', amount: deposit, direction: 'in', refNo: `ORDER${o.id}`, remark: `拍卖订单 #${o.id} 买家违约保证金赔付` });
     notify(o.buyer_id, 'auction', '订单已取消', `您未在 15 分钟内付款，「${o.auction_title}」订单已自动取消，保证金 ¥${deposit.toFixed(2)} 已扣除并赔付给卖家。`);
     notify(o.seller_id, 'auction', '买家违约', `买家未按时付款，「${o.auction_title}」订单已取消，保证金 ¥${deposit.toFixed(2)} 已赔付到您的余额。`);
   }
+
+  // 卖家发货后超过自动确认天数买家未操作 → 自动确认收货并结算
+  const autoConfirm = db.prepare(`
+    SELECT id FROM auction_orders
+    WHERE status='pending_confirm' AND auto_confirm_at IS NOT NULL AND auto_confirm_at <= ?
+  `).all(now);
+  for (const o of autoConfirm) settleOrder(o.id);
+
+  sweepTimeoutPayOrders(); // 兜底关闭超时未支付的支付单（会员单等）
 }
 
 export function startAuctionEngine() {
@@ -130,5 +162,5 @@ export function startAuctionEngine() {
   console.log('[auction] 拍卖结算引擎已启动（5s 扫描间隔）');
 }
 
-// 导出供路由层实时调用（出价后检查是否需要立即结算）
-export { scanAndSettle, notify, getWallet, freeze, unfreeze, calcDeposit as auctionDeposit };
+// 导出供路由层实时调用（出价后检查是否需要立即结算；确认收货复用 settleOrder）
+export { scanAndSettle, notify, getWallet, freeze, unfreeze, addBalance, settleOrder, calcDeposit as auctionDeposit };

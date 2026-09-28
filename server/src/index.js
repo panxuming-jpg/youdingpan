@@ -14,6 +14,9 @@ import taskRoutes from './routes/tasks.js';
 import messageRoutes from './routes/messages.js';
 import adminRoutes from './routes/admin.js';
 import auctionRoutes from './routes/auctions.js';
+import payRoutes from './routes/pay.js';
+import memberRoutes from './routes/member.js';
+import walletRoutes from './routes/wallet.js';
 import uploadRoutes, { uploadDir } from './routes/upload.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +30,9 @@ app.use('/api', taskRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', auctionRoutes);
+app.use('/api', payRoutes);
+app.use('/api', memberRoutes);
+app.use('/api', walletRoutes);
 app.use('/api', uploadRoutes);
 
 // 上传图片静态资源映射（server/uploads → /uploads/**）

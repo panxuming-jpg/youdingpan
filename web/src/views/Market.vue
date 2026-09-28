@@ -8,6 +8,7 @@ import { store } from '../store.js';
 import GoodsCard from '../components/GoodsCard.vue';
 import Pagination from '../components/Pagination.vue';
 import EmptyState from '../components/EmptyState.vue';
+import PayModal from '../components/PayModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -29,6 +30,9 @@ const size = 20;
 const total = ref(0);
 const list = ref([]);
 const loading = ref(false);
+const locked = ref(false);
+const freeViewLimit = ref(10);
+const memberPayOrder = ref(null);
 
 const SORTS = [
   { key: '', label: '最新上架' },
@@ -124,11 +128,35 @@ async function load() {
     });
     list.value = d.list;
     total.value = d.total;
+    locked.value = !!d.locked;
+    if (d.free_view_limit) freeViewLimit.value = d.free_view_limit;
   } catch (e) {
     toast.error(e.message);
   } finally {
     loading.value = false;
   }
+}
+
+async function openMemberPay() {
+  if (!store.token) {
+    toast.info('请先登录后开通会员');
+    router.push({ path: '/login', query: { redirect: route.fullPath } });
+    return;
+  }
+  if (memberPayOrder.value) return;
+  try {
+    memberPayOrder.value = await api('/pay/orders', { method: 'POST', body: { scene: 'member' } });
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+async function onPaySuccess() {
+  memberPayOrder.value = null;
+  toast.success('会员已开通，全部商品已解锁');
+  try { store.user = await api('/me'); } catch { /* 静默 */ }
+  page.value = 1;
+  load();
 }
 
 onMounted(async () => {
@@ -205,6 +233,11 @@ onMounted(async () => {
       </div>
     </div>
 
+    <div v-if="store.user && !store.user.is_member && !locked" class="muted small mb16" style="padding:0 4px">
+      当前仅展示部分商品，
+      <router-link to="/profile" style="color:var(--primary); font-weight:600">开通会员查看全部 →</router-link>
+    </div>
+
     <div v-if="filters.favorited" class="mb16">
       <span class="badge badge-primary">当前查看：我的收藏</span>
     </div>
@@ -220,8 +253,20 @@ onMounted(async () => {
       <div v-else class="card">
         <EmptyState text="没有符合条件的商品，试试放宽筛选条件" />
       </div>
+
+      <!-- 非会员解锁卡片 -->
+      <div v-if="locked" class="unlock-card card card-pad" style="text-align:center; margin-top:16px">
+        <div style="font-size:14px; color:var(--text2)">已展示 {{ list.length }} 个商品，还有 {{ total - list.length }} 个更多商品</div>
+        <div style="font-size:18px; font-weight:700; margin:8px 0">开通会员，查看全部 {{ total }} 个商品</div>
+        <div class="muted small" style="margin-bottom:14px">9.9 元 / 月 · 无限查看全部商品详情 · 新上架/降价优先提醒</div>
+        <button class="btn btn-primary" @click="openMemberPay">开通会员查看更多</button>
+      </div>
     </template>
 
-    <Pagination :page="page" :total="total" :size="size" @change="p => { page = p; load(); }" />
+    <!-- 分页仅对会员/游客显示 -->
+    <Pagination v-if="!locked" :page="page" :total="total" :size="size" @change="p => { page = p; load(); }" />
+
+    <!-- 收银台 -->
+    <PayModal v-if="memberPayOrder" :pay-order="memberPayOrder" @close="memberPayOrder = null" @success="onPaySuccess" />
   </main>
 </template>

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, parseJSON, PLATFORMS } from '../db.js';
+import { db, parseJSON, PLATFORMS, getSetting, getSettingNum, isMember } from '../db.js';
 import { authOptional, authRequired } from '../middleware.js';
 import { maskSeller, relTime } from '../util.js';
 import { searchIds } from '../search.js';
@@ -94,15 +94,32 @@ r.get('/goods', (req, res) => {
 
   const whereSql = 'WHERE ' + where.join(' AND ');
   const total = db.prepare(`SELECT COUNT(*) AS c FROM goods g ${whereSql}`).get(...params).c;
-  const rows = db.prepare(`SELECT g.* FROM goods g ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
-    .all(...params, size, (page - 1) * size);
 
-  res.json({ ok: true, data: { total, list: rows.map(g => shapeGoods(g, req.user?.id)) } });
+  // 免费用户列表限额：仅会员/管理员放行，游客和非会员都只返回前 free_view_limit 条
+  const uid = req.user?.id;
+  const member = (req.user && req.user.is_admin) || (uid && isMember(uid));
+  let cappedTotal = total;
+  let locked = false;
+  if (!member) {
+    const limit = getSettingNum('free_view_limit', 10);
+    if (total > limit) {
+      cappedTotal = limit;
+      locked = true;
+    }
+  }
+  // 限制后只取前 cappedTotal 条（非会员不分页）
+  const effectiveSize = member ? size : Math.min(size, cappedTotal);
+  const effectiveOffset = member ? (page - 1) * size : 0;
+  const rows = db.prepare(`SELECT g.* FROM goods g ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
+    .all(...params, effectiveSize, effectiveOffset);
+
+  res.json({ ok: true, data: { total, list: rows.map(g => shapeGoods(g, req.user?.id)), locked, free_view_limit: locked ? getSettingNum('free_view_limit', 10) : null } });
 });
 
 r.get('/goods/:id', (req, res) => {
   const g = db.prepare('SELECT * FROM goods WHERE id=?').get(Number(req.params.id));
   if (!g) return res.json({ ok: false, error: '商品不存在或已下架' });
+  // 列表限额模式下，详情页不再做单独计数锁定，能进入列表的商品均可查看完整详情
   res.json({ ok: true, data: shapeGoods(g, req.user?.id, true) });
 });
 

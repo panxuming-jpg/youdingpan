@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { db, parseJSON } from '../db.js';
+import { db, parseJSON, getSettingNum, fundLog } from '../db.js';
 import { authRequired } from '../middleware.js';
-import { calcDeposit, scanAndSettle, notify, getWallet, freeze } from '../engine/auction.js';
+import { calcDeposit, scanAndSettle, notify, freeze, settleOrder } from '../engine/auction.js';
+import { createPayOrder, getPayOrder, shapePayOrder } from '../pay.js';
 import { searchAuctionIds, addAuction } from '../search.js';
 
 const r = Router();
@@ -184,6 +185,29 @@ r.get('/my/bids', authRequired, (req, res) => {
   res.json({ ok: true, data: rows.map(a => shapeAuction(a, false)) });
 });
 
+// 拍卖订单公共字段（买家/卖家视角共用）
+function shapeOrder(o, extra = {}) {
+  return {
+    id: o.id,
+    auction_id: o.auction_id,
+    auction_title: o.auction_title,
+    images: parseJSON(o.auction_images, []),
+    amount: o.amount,
+    status: o.status,
+    pay_order_no: o.pay_order_no || '',
+    ship_company: o.ship_company || '',
+    ship_no: o.ship_no || '',
+    shipped_at: o.shipped_at,
+    auto_confirm_at: o.auto_confirm_at,
+    after_sale_reason: o.after_sale_reason || '',
+    paid_at: o.paid_at,
+    confirmed_at: o.confirmed_at,
+    refunded_at: o.refunded_at,
+    created_at: o.created_at,
+    ...extra,
+  };
+}
+
 // 我的订单（买家视角）
 r.get('/my/orders', authRequired, (req, res) => {
   const rows = db.prepare(`
@@ -192,57 +216,118 @@ r.get('/my/orders', authRequired, (req, res) => {
     WHERE o.buyer_id=? ORDER BY o.created_at DESC
   `).all(req.user.id);
   res.json({
-    ok: true, data: rows.map(o => ({
-      id: o.id,
-      auction_id: o.auction_id,
-      auction_title: o.auction_title,
-      images: parseJSON(o.auction_images, []),
+    ok: true,
+    data: rows.map(o => shapeOrder(o, {
       seller_name: o.seller_name || `用户${String(o.seller_phone).slice(-4)}`,
-      amount: o.amount,
-      status: o.status,
-      paid_at: o.paid_at,
-      confirmed_at: o.confirmed_at,
-      created_at: o.created_at,
     })),
   });
 });
 
-// 模拟付款（买家）
+// 我的售出订单（卖家视角）
+r.get('/my/sale-orders', authRequired, (req, res) => {
+  const rows = db.prepare(`
+    SELECT o.*, a.title AS auction_title, a.images AS auction_images, u.nickname AS buyer_name, u.phone AS buyer_phone
+    FROM auction_orders o JOIN auctions a ON a.id=o.auction_id JOIN users u ON u.id=o.buyer_id
+    WHERE o.seller_id=? ORDER BY o.created_at DESC
+  `).all(req.user.id);
+  res.json({
+    ok: true,
+    data: rows.map(o => shapeOrder(o, {
+      buyer_name: o.buyer_name || `用户${String(o.buyer_phone).slice(-4)}`,
+    })),
+  });
+});
+
+// 买家支付：创建/复用担保支付单（资金进平台担保账户，不再从钱包扣款）
 r.post('/orders/:id/pay', authRequired, (req, res) => {
   const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(Number(req.params.id));
   if (!o) return res.json({ ok: false, error: '订单不存在' });
   if (o.buyer_id !== req.user.id) return res.json({ ok: false, error: '无权操作此订单' });
   if (o.status !== 'pending_payment') return res.json({ ok: false, error: '订单状态不允许付款' });
 
-  const wallet = getWallet(req.user.id);
-  if (wallet.balance < o.amount) return res.json({ ok: false, error: '余额不足' });
-
-  const now = Date.now();
-  db.prepare(`UPDATE auction_orders SET status='pending_confirm', paid_at=? WHERE id=?`).run(now, o.id);
-  db.prepare('UPDATE wallets SET balance=balance-? WHERE user_id=?').run(o.amount, req.user.id);
+  // 复用未过期的待支付单
+  if (o.pay_order_no) {
+    const exist = getPayOrder(o.pay_order_no);
+    if (exist && exist.status === 'pending' && exist.expire_at > Date.now()) {
+      return res.json({ ok: true, data: shapePayOrder(exist) });
+    }
+  }
   const a = db.prepare('SELECT title FROM auctions WHERE id=?').get(o.auction_id);
-  notify(o.seller_id, 'auction', '买家已付款', `「${a.title}」买家已完成付款，请等待平台交割换绑。`);
-  res.json({ ok: true, data: { id: o.id, status: 'pending_confirm' } });
+  const order = createPayOrder({
+    userId: req.user.id,
+    scene: 'auction',
+    refId: o.id,
+    subject: `拍卖货款担保支付：${a?.title || `订单#${o.id}`}`,
+    amount: o.amount,
+  });
+  db.prepare('UPDATE auction_orders SET pay_order_no=? WHERE id=?').run(order.order_no, o.id);
+  res.json({ ok: true, data: shapePayOrder(order) });
 });
 
-// 确认收货（买家）
+// 卖家发货：填写物流公司与单号，订单转「待买家确认收货」
+r.post('/orders/:id/ship', authRequired, (req, res) => {
+  const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(Number(req.params.id));
+  if (!o) return res.json({ ok: false, error: '订单不存在' });
+  if (o.seller_id !== req.user.id) return res.json({ ok: false, error: '无权操作此订单' });
+  if (o.status !== 'pending_ship') return res.json({ ok: false, error: '订单状态不允许发货' });
+
+  const company = String(req.body?.ship_company || '').trim().slice(0, 30);
+  const shipNo = String(req.body?.ship_no || '').trim().slice(0, 50);
+  if (!company) return res.json({ ok: false, error: '请填写物流公司' });
+  if (!shipNo) return res.json({ ok: false, error: '请填写物流单号' });
+
+  const now = Date.now();
+  const autoDays = getSettingNum('auto_confirm_days', 7);
+  const autoConfirmAt = now + autoDays * 86_400_000;
+  db.prepare(`UPDATE auction_orders SET status='pending_confirm', ship_company=?, ship_no=?, shipped_at=?, auto_confirm_at=? WHERE id=?`)
+    .run(company, shipNo, now, autoConfirmAt, o.id);
+  const a = db.prepare('SELECT title FROM auctions WHERE id=?').get(o.auction_id);
+  notify(o.buyer_id, 'auction', '卖家已发货', `「${a?.title}」卖家已发货（${company} ${shipNo}），请在收货后及时确认；${autoDays} 天内未确认将自动确认收货。`);
+  res.json({ ok: true, data: { id: o.id, status: 'pending_confirm', auto_confirm_at: autoConfirmAt } });
+});
+
+// 确认收货（买家）：担保资金结算至卖家余额
 r.post('/orders/:id/confirm', authRequired, (req, res) => {
   const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(Number(req.params.id));
   if (!o) return res.json({ ok: false, error: '订单不存在' });
   if (o.buyer_id !== req.user.id) return res.json({ ok: false, error: '无权操作此订单' });
   if (o.status !== 'pending_confirm') return res.json({ ok: false, error: '订单状态不允许确认收货' });
+  settleOrder(o.id);
+  res.json({ ok: true, data: { id: o.id, status: 'completed' } });
+});
+
+// 买家退款（仅未发货可申请，全额退款，交易关闭）
+r.post('/orders/:id/refund', authRequired, (req, res) => {
+  const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(Number(req.params.id));
+  if (!o) return res.json({ ok: false, error: '订单不存在' });
+  if (o.buyer_id !== req.user.id) return res.json({ ok: false, error: '无权操作此订单' });
+  if (o.status !== 'pending_ship') return res.json({ ok: false, error: '卖家已发货，退款请走售后申诉' });
 
   const now = Date.now();
-  db.prepare(`UPDATE auction_orders SET status='completed', confirmed_at=? WHERE id=?`).run(now, o.id);
-  db.prepare(`UPDATE auctions SET status='completed' WHERE id=?`).run(o.auction_id);
-  // 解冻卖家货款（模拟扣除手续费后打款）
-  const fee = Math.max(1, Math.round(o.amount * 0.05 * 100) / 100); // 5% 手续费
-  const net = o.amount - fee;
-  db.prepare('UPDATE wallets SET balance=balance+? WHERE user_id=?').run(net, o.seller_id);
+  db.prepare(`UPDATE auction_orders SET status='refunded', refunded_at=? WHERE id=?`).run(now, o.id);
+  const refNo = o.pay_order_no || `ORDER${o.id}`;
+  // 担保资金原路退回买家（模拟通道直接记账；真实支付调用渠道退款接口）
+  fundLog({ userId: o.buyer_id, biz: 'refund', amount: o.amount, direction: 'in', refNo, remark: `拍卖订单 #${o.id} 未发货全额退款` });
   const a = db.prepare('SELECT title FROM auctions WHERE id=?').get(o.auction_id);
-  notify(o.seller_id, 'auction', '交易完成', `「${a.title}」交易已完成，货款 ¥${net.toFixed(2)}（已扣除手续费 ¥${fee.toFixed(2)}）已到账。`);
-  notify(o.buyer_id, 'auction', '交易完成', `「${a.title}」交易已完成，感谢您的购买。`);
-  res.json({ ok: true, data: { id: o.id, status: 'completed' } });
+  notify(o.buyer_id, 'auction', '退款成功', `「${a?.title}」订单已退款 ¥${o.amount.toFixed(2)}，资金将原路退回您的支付账户。`);
+  notify(o.seller_id, 'auction', '订单已退款关闭', `「${a?.title}」买家申请了未发货退款，担保资金 ¥${o.amount.toFixed(2)} 已退回买家，订单关闭。`);
+  res.json({ ok: true, data: { id: o.id, status: 'refunded' } });
+});
+
+// 买家售后申诉（待收货状态发起，平台介入仲裁，担保资金冻结）
+r.post('/orders/:id/after-sale', authRequired, (req, res) => {
+  const o = db.prepare('SELECT * FROM auction_orders WHERE id=?').get(Number(req.params.id));
+  if (!o) return res.json({ ok: false, error: '订单不存在' });
+  if (o.buyer_id !== req.user.id) return res.json({ ok: false, error: '无权操作此订单' });
+  if (o.status !== 'pending_confirm') return res.json({ ok: false, error: '当前状态不支持售后申诉' });
+  const reason = String(req.body?.reason || '').trim().slice(0, 200);
+  if (!reason) return res.json({ ok: false, error: '请填写售后申诉原因' });
+
+  db.prepare(`UPDATE auction_orders SET status='after_sale', after_sale_reason=? WHERE id=?`).run(reason, o.id);
+  const a = db.prepare('SELECT title FROM auctions WHERE id=?').get(o.auction_id);
+  notify(o.seller_id, 'auction', '买家发起售后', `「${a?.title}」买家发起售后申诉：${reason}。平台已冻结该笔担保资金，等待仲裁处理。`);
+  notify(o.buyer_id, 'auction', '售后已受理', `「${a?.title}」售后申诉已提交，平台将介入仲裁，担保资金已冻结，请留意处理结果。`);
+  res.json({ ok: true, data: { id: o.id, status: 'after_sale' } });
 });
 
 // 卖家取消拍卖（仅无出价时允许）
@@ -255,12 +340,6 @@ r.post('/auctions/:id/cancel', authRequired, (req, res) => {
   if (bidCount > 0) return res.json({ ok: false, error: '已有买家出价，禁止取消拍卖' });
   db.prepare(`UPDATE auctions SET status='cancelled' WHERE id=?`).run(a.id);
   res.json({ ok: true, data: { id: a.id, status: 'cancelled' } });
-});
-
-// 钱包查询
-r.get('/wallet', authRequired, (req, res) => {
-  const w = getWallet(req.user.id);
-  res.json({ ok: true, data: { balance: w.balance, frozen: w.frozen } });
 });
 
 export default r;

@@ -18,6 +18,8 @@ function shapeUser(u) {
     is_admin: !!u.is_admin,
     email: u.email || '',
     push_channels: parseJSON(u.push_channels, ['inapp']),
+    member_expire_at: u.member_expire_at || 0,
+    is_member: (u.member_expire_at || 0) > Date.now(),
   };
 }
 

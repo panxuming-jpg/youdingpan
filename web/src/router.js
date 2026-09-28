@@ -13,6 +13,7 @@ const routes = [
   { path: '/tasks', name: 'tasks', component: () => import('./views/Tasks.vue'), meta: { title: '监控任务', auth: true } },
   { path: '/messages', name: 'messages', component: () => import('./views/Messages.vue'), meta: { title: '消息中心', auth: true } },
   { path: '/profile', name: 'profile', component: () => import('./views/Profile.vue'), meta: { title: '个人中心', auth: true } },
+  { path: '/wallet', name: 'wallet', component: () => import('./views/Wallet.vue'), meta: { title: '我的钱包', auth: true } },
   { path: '/admin', name: 'admin', component: () => import('./views/Admin.vue'), meta: { title: '管理后台', auth: true, admin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

@@ -477,3 +477,122 @@ if (walletCount === 0) {
   const insWallet = db.prepare('INSERT INTO wallets (user_id, balance, frozen, created_at) VALUES (?,10000.0,0,?)');
   for (const u of users) insWallet.run(u.id, now);
 }
+
+// ---------- 付费会员 + 担保交易支付：表结构 ----------
+db.exec(`
+-- 平台可配置项（后台可改：免费查看限额、会员价格、提现规则等）
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- 统一支付单：会员订阅 / 拍卖订单共用，唯一单号可溯源
+CREATE TABLE IF NOT EXISTS pay_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_no TEXT UNIQUE NOT NULL,
+  user_id INTEGER NOT NULL,
+  scene TEXT NOT NULL,              -- member | auction
+  ref_id INTEGER,                   -- scene=auction 时为 auction_orders.id
+  subject TEXT NOT NULL,
+  amount REAL NOT NULL,
+  channel TEXT DEFAULT '',          -- wechat | alipay | mock
+  status TEXT DEFAULT 'pending',    -- pending | paid | closed | timeout
+  expire_at INTEGER,
+  paid_at INTEGER,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_po_user ON pay_orders(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_po_scene ON pay_orders(scene, status);
+-- 免费用户商品详情查看记录（永久累计去重计数；mode=daily 时按 created_at 当日计）
+CREATE TABLE IF NOT EXISTS goods_view_logs (
+  user_id INTEGER NOT NULL,
+  goods_id INTEGER NOT NULL,
+  created_at INTEGER,
+  PRIMARY KEY (user_id, goods_id)
+);
+-- 卖家余额提现单
+CREATE TABLE IF NOT EXISTS withdraw_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  amount REAL NOT NULL,
+  fee REAL DEFAULT 0,
+  channel TEXT NOT NULL,            -- wechat | alipay
+  account TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',    -- pending | paid | rejected
+  remark TEXT DEFAULT '',
+  created_at INTEGER,
+  processed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_wd_user ON withdraw_orders(user_id, created_at DESC);
+-- 全量资金流水（会员支付、拍卖担保、结算、退款、提现、手续费）
+CREATE TABLE IF NOT EXISTS fund_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,                  -- 关联用户；平台收入类为空
+  biz TEXT NOT NULL,                -- member_pay | auction_pay | escrow_settle | refund | withdraw | withdraw_reject | fee
+  amount REAL NOT NULL,
+  direction TEXT NOT NULL,          -- in | out
+  ref_no TEXT DEFAULT '',
+  channel TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fl_user ON fund_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fl_biz ON fund_logs(biz, created_at DESC);
+`);
+
+// 用户会员有效期（毫秒时间戳，0/NULL=非会员）
+try { db.exec('ALTER TABLE users ADD COLUMN member_expire_at INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// 拍卖订单担保交易扩展列
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN pay_order_no TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN ship_company TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN ship_no TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN shipped_at INTEGER`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN auto_confirm_at INTEGER`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN after_sale_reason TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN refunded_at INTEGER`); } catch (e) { /* 列已存在 */ }
+
+// 平台可配置项默认值（幂等；后台可修改）
+const DEFAULT_SETTINGS = {
+  free_view_limit: '10',        // 免费用户可查看商品详情数量上限
+  view_count_mode: 'permanent', // permanent=永久累计 | daily=每日重置
+  member_price: '9.9',          // 会员月卡价格（元）
+  member_days: '30',            // 会员单次订阅天数
+  member_benefits: '解锁全部商品详情查看，不限次数；新上架/降价提醒优先送达',
+  order_fee_rate: '0.05',       // 拍卖订单平台手续费率（确认收货时从货款扣除）
+  auto_confirm_days: '7',       // 卖家发货后自动确认收货天数
+  withdraw_min: '0',            // 单笔最低提现金额
+  withdraw_fee_rate: '0',       // 提现手续费率
+  withdraw_free_threshold: '0', // 单笔提现 ≥ 该金额免手续费（0=不启用）
+};
+const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)');
+for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
+
+export function getSetting(key, dflt = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return row ? row.value : dflt;
+}
+export function getSettingNum(key, dflt = 0) {
+  const n = Number(getSetting(key, ''));
+  return Number.isFinite(n) ? n : dflt;
+}
+export function setSetting(key, value) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(key, String(value));
+}
+
+// 会员判断与开通/续费（有效期顺延：在 max(当前有效期, 现在) 基础上 +days）
+export function isMember(userId) {
+  const u = db.prepare('SELECT member_expire_at FROM users WHERE id=?').get(userId);
+  return !!u && (u.member_expire_at || 0) > Date.now();
+}
+export function extendMembership(userId, days) {
+  const u = db.prepare('SELECT member_expire_at FROM users WHERE id=?').get(userId);
+  const base = Math.max(Date.now(), u?.member_expire_at || 0);
+  const expire = base + days * 86_400_000;
+  db.prepare('UPDATE users SET member_expire_at=? WHERE id=?').run(expire, userId);
+  return expire;
+}
+
+export function fundLog({ userId = null, biz, amount, direction, refNo = '', channel = '', remark = '' }) {
+  db.prepare('INSERT INTO fund_logs (user_id, biz, amount, direction, ref_no, channel, remark, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(userId, biz, amount, direction, refNo, channel, remark, Date.now());
+}
