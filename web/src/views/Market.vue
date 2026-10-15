@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api.js';
-import { PLATFORMS } from '../utils.js';
+import { PLATFORMS, gameCover } from '../utils.js';
 import { toast } from '../toast.js';
 import { store } from '../store.js';
 import GoodsCard from '../components/GoodsCard.vue';
@@ -42,6 +42,11 @@ watch(() => filters.keyword, () => {
   kwTimer = setTimeout(() => { page.value = 1; load(); }, 350);
 });
 watch(() => [filters.game_id, filters.sort], () => { page.value = 1; load(); });
+
+// 游戏主图加载失败时隐藏 img，回退为名称首字
+function onCoverError(e) {
+  e.target.style.display = 'none';
+}
 
 // 切换游戏 tab，并同步到 URL（便于分享/刷新保持）
 function selectGame(id) {
@@ -132,20 +137,34 @@ onMounted(async () => {
     <div class="page-title">商品市场</div>
     <div class="page-sub">全平台在售账号聚合，支持按游戏、平台、价格筛选与最新上架排序</div>
 
-    <!-- 游戏切换 tab：默认选中当前有在售商品的第一款游戏 -->
-    <div class="tabs game-tabs">
+    <!-- 游戏切换 tab：游戏主图 + 名称，默认选中当前有在售商品的第一款游戏 -->
+    <div class="game-tabs">
       <button
-        class="tab"
+        class="game-tab"
         :class="{ active: filters.game_id === '' }"
         @click="selectGame('')"
-      >全部游戏</button>
+      >
+        <span class="game-tab-img game-tab-all" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor">
+            <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.8"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.8"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.8"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.8"/>
+          </svg>
+        </span>
+        <span class="game-tab-name">全部游戏</span>
+      </button>
       <button
         v-for="g in gameTabs"
         :key="g.id"
-        class="tab"
+        class="game-tab"
         :class="{ active: String(g.id) === String(filters.game_id) }"
+        :title="g.name"
         @click="selectGame(String(g.id))"
-      >{{ g.name }}</button>
+      >
+        <span class="game-tab-img">
+          <span class="game-tab-fallback">{{ (g.short_name || g.name).slice(0, 1) }}</span>
+          <img v-if="gameCover(g.name)" :src="gameCover(g.name)" :alt="g.name" loading="lazy" @error="onCoverError" />
+        </span>
+        <span class="game-tab-name">{{ g.short_name || g.name }}</span>
+      </button>
     </div>
 
     <div class="card card-pad mb16">

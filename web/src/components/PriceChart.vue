@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed } from 'vue';
 import { fmtPrice, fmtDate } from '../utils.js';
 
@@ -84,8 +84,8 @@ const xTicks = computed(() => {
     <svg v-else :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="价格走势图">
       <defs>
         <linearGradient id="price-area" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.22" />
-          <stop offset="100%" stop-color="#4f46e5" stop-opacity="0.02" />
+          <stop offset="0%" stop-color="#ff6a00" stop-opacity="0.22" />
+          <stop offset="100%" stop-color="#ff6a00" stop-opacity="0.02" />
         </linearGradient>
       </defs>
       <g v-for="(t, i) in yTicks" :key="`y${i}`">
@@ -93,7 +93,7 @@ const xTicks = computed(() => {
         <text :x="PL - 8" :y="t.y + 4" text-anchor="end" font-size="11" fill="#9aa1af">{{ t.label }}</text>
       </g>
       <path v-if="areaPath" :d="areaPath" fill="url(#price-area)" />
-      <path :d="linePath" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      <path :d="linePath" fill="none" stroke="#ff6a00" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
       <g v-for="(t, i) in xTicks" :key="`x${i}`">
         <text :x="t.x" :y="H - 8" text-anchor="middle" font-size="11" fill="#9aa1af">{{ t.label }}</text>
       </g>
@@ -104,7 +104,7 @@ const xTicks = computed(() => {
         :cy="p.y"
         :r="pts.length > 40 ? 2 : 3"
         fill="#fff"
-        stroke="#4f46e5"
+        stroke="#ff6a00"
         stroke-width="1.6"
       >
         <title>{{ `${fmtDate(p.ts)}：${fmtPrice(p.price)}` }}</title>
