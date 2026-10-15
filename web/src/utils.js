@@ -82,6 +82,22 @@ export function gameCover(name) {
   return `${GAME_ICON_URL}?prompt=${encodeURIComponent(prompt)}&image_size=square`;
 }
 
+// 平台图标：按平台 key 映射，圆形 logo 风格小图标
+const PLATFORM_PROMPTS = {
+  jiaoyimao: 'cute orange cat mascot logo icon for a game trading platform, flat design, orange and white, round app icon, minimal vector style',
+  panzhi: 'red shield logo icon with letter P for a game account consignment platform, flat design, red and white, round app icon, minimal vector style',
+  pangxie: 'cute red crab mascot logo icon for a game account trading platform, flat design, red and white, round app icon, minimal vector style',
+  7881: 'blue number 7881 logo icon for a game trading platform, flat design, blue and white, round app icon, minimal vector style',
+  dd373: 'green letters DD logo icon for a game trading platform, flat design, green and white, round app icon, minimal vector style',
+  5173: 'red number 5173 logo icon for a game trading platform, flat design, red and white, round app icon, minimal vector style',
+};
+
+export function platformIcon(key) {
+  const prompt = PLATFORM_PROMPTS[key];
+  if (!prompt) return '';
+  return `${GAME_ICON_URL}?prompt=${encodeURIComponent(prompt)}&image_size=square`;
+}
+
 export function fmtPrice(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return '-';

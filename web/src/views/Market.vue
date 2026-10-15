@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api.js';
-import { PLATFORMS, gameCover } from '../utils.js';
+import { PLATFORMS, gameCover, platformIcon } from '../utils.js';
 import { toast } from '../toast.js';
 import { store } from '../store.js';
 import GoodsCard from '../components/GoodsCard.vue';
@@ -236,7 +236,7 @@ onMounted(async () => {
           tabindex="0"
           @click="togglePlatform(p.key)"
           @keydown.enter.prevent="togglePlatform(p.key)"
-        >{{ p.name }}</span>
+        ><img v-if="platformIcon(p.key)" :src="platformIcon(p.key)" :alt="p.name" class="chip-icon" loading="lazy" @error="onCoverError" />{{ p.name }}</span>
         <span class="chip" :class="{ active: filters.favorited }" role="button" tabindex="0" @click="toggleFavorited" @keydown.enter.prevent="toggleFavorited">我的收藏</span>
       </div>
 

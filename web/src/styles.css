@@ -161,6 +161,10 @@ input, select, textarea { font-family: inherit; }
 .chip:hover { border-color: var(--primary); color: var(--primary); }
 .chip.active { background: var(--primary-weak); border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .chip.disabled { opacity: 0.5; cursor: not-allowed; }
+.chip-icon {
+  width: 18px; height: 18px; border-radius: 50%; object-fit: cover;
+  flex: none; background: #fff; box-shadow: 0 0 0 1px rgba(16, 24, 40, 0.08);
+}
 
 /* ---------- 表格 ---------- */
 .table-wrap { overflow-x: auto; }
