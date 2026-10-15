@@ -1,0 +1,15 @@
+{
+  "name": "game_juhe",
+  "version": "1.0.0",
+  "description": "",
+  "main": "a7881_2016.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "puppeteer-core": "^25.12.0"
+  }
+}

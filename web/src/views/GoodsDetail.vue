@@ -49,7 +49,21 @@ async function toggleFav() {
   try {
     const d = await api(`/favorites/${detail.value.id}/toggle`, { method: 'POST' });
     detail.value.is_favorited = d.favorited;
-    toast.success(d.favorited ? '已加入收藏' : '已取消收藏');
+    detail.value.fav_watch = !!d.fav_watch;
+    detail.value.fav_baseline = d.fav_baseline ?? null;
+    toast.success(d.favorited ? '已加入收藏，低于收藏价时将提醒你' : '已取消收藏');
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+// 收藏降价监控开关：以收藏时价格为基线，低于基线或下架时通过站内消息/邮件提醒
+async function toggleWatch() {
+  try {
+    const d = await api(`/favorites/${detail.value.id}/watch`, { method: 'PUT', body: { on: !detail.value.fav_watch } });
+    detail.value.fav_watch = d.fav_watch;
+    detail.value.fav_baseline = d.fav_baseline;
+    toast.success(d.fav_watch ? '已开启收藏降价提醒' : '已关闭收藏降价提醒');
   } catch (e) {
     toast.error(e.message);
   }
@@ -171,7 +185,22 @@ onMounted(() => {
 
         <div class="card card-pad">
           <div class="card-title">盯住这件商品</div>
-          <p class="muted small">创建监控任务后，该商品降价、下架或同类新上架都会第一时间提醒你。</p>
+          <template v-if="detail.is_favorited">
+            <div class="row between" style="gap:8px">
+              <div>
+                <div style="font-size:14px">收藏降价提醒</div>
+                <div class="muted small" style="margin-top:2px">
+                  收藏时价格 {{ fmtPrice(detail.fav_baseline ?? detail.price) }}，低于该价或下架时提醒你
+                </div>
+              </div>
+              <label class="switch" title="收藏降价提醒">
+                <input type="checkbox" :checked="detail.fav_watch" @change="toggleWatch" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </template>
+          <p v-else class="muted small">收藏该商品后自动开启降价监控：低于收藏时价格或商品下架时，通过站内消息（可选邮件）提醒你。</p>
+          <p class="muted small" style="margin-top:8px">创建监控任务后，同类商品的新上架、降价也会第一时间提醒你。</p>
           <RouterLink to="/tasks"><button class="btn btn-ghost btn-block mt8">去创建监控任务</button></RouterLink>
         </div>
       </div>
@@ -191,3 +220,5 @@ onMounted(() => {
     </Modal>
   </main>
 </template>
+
+

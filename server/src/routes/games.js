@@ -20,7 +20,7 @@ export function shapeGame(g, withServers = true) {
 }
 
 r.get('/games', (req, res) => {
-  const rows = db.prepare('SELECT * FROM games WHERE status=1 ORDER BY id').all();
+  const rows = db.prepare('SELECT * FROM games WHERE status=1 ORDER BY sort_order, id').all();
   // 各游戏在售商品数（用于前端游戏 tab 展示/排序）
   const counts = db.prepare(`SELECT game_id, COUNT(*) AS c FROM goods WHERE status='on' GROUP BY game_id`).all();
   const countMap = new Map(counts.map(x => [x.game_id, x.c]));

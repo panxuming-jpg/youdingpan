@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { signToken, randomCode } from '../util.js';
 import { authOptional, authRequired } from '../middleware.js';
 import { parseJSON } from '../db.js';
+import { mailEnabled } from '../mailer.js';
 
 const r = Router();
 // 必须先解析 token 再进入 /me 路由：auth 路由挂载在 goods 之前，
@@ -17,6 +18,8 @@ function shapeUser(u) {
     is_admin: !!u.is_admin,
     email: u.email || '',
     push_channels: parseJSON(u.push_channels, ['inapp']),
+    member_expire_at: u.member_expire_at || 0,
+    is_member: (u.member_expire_at || 0) > Date.now(),
   };
 }
 
@@ -52,6 +55,9 @@ r.post('/auth/login', (req, res) => {
 });
 
 r.get('/me', authRequired, (req, res) => res.json({ ok: true, data: req.user }));
+
+// 邮件渠道是否已在服务端配置（前端据此提示"未配置 SMTP 时邮件不会实际发出"）
+r.get('/mail/status', (_req, res) => res.json({ ok: true, data: { enabled: mailEnabled } }));
 
 r.put('/me', authRequired, (req, res) => {
   const { nickname, email, push_channels } = req.body || {};

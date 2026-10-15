@@ -14,6 +14,7 @@ watch(() => store.token, t => (t ? connectSSE() : closeSSE()), { immediate: true
 const navs = computed(() => {
   const list = [
     { path: '/market', label: '商品市场' },
+    { path: '/auctions', label: '游拍卖' },
     { path: '/tasks', label: '监控任务', auth: true },
     { path: '/messages', label: '消息中心', auth: true, badge: () => store.unread },
   ];

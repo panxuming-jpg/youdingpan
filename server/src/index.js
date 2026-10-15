@@ -6,12 +6,18 @@ import { db } from './db.js';
 import { verifyToken } from './util.js';
 import { addClient } from './engine/sse.js';
 import { startEngine } from './engine/engine.js';
+import { startAuctionEngine } from './engine/auction.js';
 import authRoutes from './routes/auth.js';
 import gameRoutes from './routes/games.js';
 import goodsRoutes from './routes/goods.js';
 import taskRoutes from './routes/tasks.js';
 import messageRoutes from './routes/messages.js';
 import adminRoutes from './routes/admin.js';
+import auctionRoutes from './routes/auctions.js';
+import payRoutes from './routes/pay.js';
+import memberRoutes from './routes/member.js';
+import walletRoutes from './routes/wallet.js';
+import uploadRoutes, { uploadDir } from './routes/upload.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -23,6 +29,14 @@ app.use('/api', goodsRoutes);
 app.use('/api', taskRoutes);
 app.use('/api', messageRoutes);
 app.use('/api', adminRoutes);
+app.use('/api', auctionRoutes);
+app.use('/api', payRoutes);
+app.use('/api', memberRoutes);
+app.use('/api', walletRoutes);
+app.use('/api', uploadRoutes);
+
+// 上传图片静态资源映射（server/uploads → /uploads/**）
+app.use('/uploads', express.static(uploadDir));
 
 // SSE 实时推送（token 通过 query 传递，EventSource 不支持自定义 Header）
 app.get('/api/sse', (req, res) => {
@@ -57,4 +71,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`[server] 游盯盘服务已启动: http://localhost:${PORT}`);
   startEngine();
+  startAuctionEngine();
 });

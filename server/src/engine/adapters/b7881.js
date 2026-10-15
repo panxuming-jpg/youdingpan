@@ -60,8 +60,10 @@ export class B7881Adapter extends BaseAdapter {
       for (let pg = 1; pg <= MAX_PAGES; pg++) {
         const url = `https://search.7881.com/${game.platformGameCode}-${catCode}-0-0-0.html?pageNum=${pg}`;
         let responses = [];
+        let pageStatus = 0;
+        let pageTitle = '';
         try {
-          ({ responses } = await openPage({
+          ({ responses, status: pageStatus, title: pageTitle } = await openPage({
             url,
             waitMs: 13000,   // XHR 约在加载后 10~13s 触发
             scroll: true,    // 滚动触发商品列表 XHR
@@ -70,6 +72,13 @@ export class B7881Adapter extends BaseAdapter {
         } catch (err) {
           console.error(`[7881] ${game.name} 第 ${pg} 页打开失败: ${err.message}`);
           break;
+        }
+        // 403 封禁页：7881 对境外 IP / 频控返回 "您的请求有些频繁 ... guowai"（title=Forbidden）。
+        // 常见于本机开了 Clash 等系统代理（出口为境外节点）；采集浏览器默认已 --no-proxy-server 直连，
+        // 若仍 403 说明真实出口就在境外，需国内网络或设置 CRAWL_PROXY_SERVER 指向国内代理。
+        if (pageStatus === 403 || /forbidden/i.test(pageTitle || '')) {
+          console.warn(`[7881] 列表页 403（${pageTitle || 'Forbidden'}）——出口 IP 疑似境外或被频控，本轮终止。请使用国内网络直连，或设置 CRAWL_PROXY_SERVER 为国内代理`);
+          return allItems;
         }
         const hit = pickJsonResponse(responses, d => d?.code === 0 && Array.isArray(d?.body?.results));
         if (!hit) {
@@ -103,8 +112,8 @@ export class B7881Adapter extends BaseAdapter {
             images: r.defaultImg ? [r.defaultImg] : [],
             seller: r.source || '',
             publish_time: parseTime(r.createtime) || parseTime(r.lastTime) || now,
-            // 直达原平台商品详情页：{goodsId}lmth.（"html" 反写防爬）
-            source_url: `https://search.7881.com/${r.goodsId}lmth.`,
+            // 直达原平台商品详情页：search 子域 /{goodsId}.html（点击商品卡 openGoodsDetailPage 的真实跳转地址）
+            source_url: `https://search.7881.com/${r.goodsId}.html`,
           });
           knownIds.add(id);
           added++;

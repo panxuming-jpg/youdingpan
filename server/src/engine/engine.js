@@ -10,7 +10,8 @@
  */
 import { db, PLATFORMS } from '../db.js';
 import { ADAPTERS } from './adapters/index.js';
-import { dispatchEvent } from './push.js';
+import { dispatchEvent, dispatchFavEvent } from './push.js';
+import { rebuildIndex, rebuildAuctionIndex, addGoods } from '../search.js';
 
 const OFF_SHELF_MISSES = 2; // 连续 2 轮（约 1 小时）未抓取到 → 下架
 // 窗口边界：只对最近 WINDOW_MS 内见过（last_seen ≥ windowEdge）但本轮未抓到的商品做 miss++。
@@ -28,6 +29,8 @@ let runningAdapter = null;     // 当前正在采集的适配器平台 key（nul
 
 export function startEngine() {
   const now = Date.now();
+  rebuildIndex(); // 启动时全量重建搜索倒排索引
+  rebuildAuctionIndex(); // 拍卖倒排索引（标题分词）
 
   for (const ad of ADAPTERS) {
     ad.rehydrate(now);
@@ -109,6 +112,7 @@ async function runBatch(ad, now) {
           item.seller || '', item.publish_time || now, now, now, item.source_url || '');
       const goodsId = Number(ins.lastInsertRowid);
       db.prepare('INSERT INTO price_history (goods_id, price, recorded_at) VALUES (?,?,?)').run(goodsId, item.price, now);
+      addGoods(goodsId, `${item.title} ${item.server_name}`); // 倒排索引增量更新
       okCount++;
       dispatchEvent('new', shapeForEvent(goodsId, ad, item));
     } else {
@@ -122,6 +126,8 @@ async function runBatch(ad, now) {
           const dropAmount = oldPrice - item.price;
           lastDrop = dropAmount;
           dispatchEvent('drop', shapeForEvent(exist.id, ad, { ...item, price: item.price }), { dropAmount });
+          // 收藏降价提醒：仅当现价低于收藏时基线价才真正通知（push.js 内判定）
+          dispatchFavEvent('fav_drop', shapeForEvent(exist.id, ad, { ...item, price: item.price }), { dropAmount });
         }
       }
       db.prepare(`UPDATE goods SET status='on', price=?, lowest_price=MIN(COALESCE(lowest_price, ?), ?),
@@ -143,6 +149,7 @@ async function runBatch(ad, now) {
     if (newMiss >= OFF_SHELF_MISSES) {
       db.prepare(`UPDATE goods SET status='off', miss_count=? WHERE id=?`).run(newMiss, g.id);
       dispatchEvent('off', shapeForEvent(g.id, ad, g));
+      dispatchFavEvent('fav_off', shapeForEvent(g.id, ad, g));
     } else {
       db.prepare('UPDATE goods SET miss_count=? WHERE id=?').run(newMiss, g.id);
     }

@@ -38,13 +38,29 @@ echo "==> [3/6] 安装后端依赖（puppeteer-core 不会额外下载浏览器�
 cd "$APP_DIR/server"
 npm install --omit=dev
 
-echo "==> [4/6] 构建前端..."
-cd "$APP_DIR/web"
-npm install
-npm run build
+echo "==> [4/6] 前端构建..."
+# 部署包已携带本地构建好的 web/dist 时直接使用（解压即生效），
+# 跳过服务器端 npm build，避免小内存机器构建失败导致部署中断。
+# 如需在服务器上强制重新构建：删除 web/dist 后再跑本脚本。
+if [ -f "$APP_DIR/web/dist/index.html" ]; then
+  echo "    检测到随包前端产物 web/dist，跳过构建直接使用"
+else
+  cd "$APP_DIR/web"
+  npm install
+  npm run build
+fi
 
-echo "==> [5/6] 数据目录 + 时区..."
-mkdir -p "$APP_DIR/server/data"
+echo "==> [5/6] 数据目录 + 拍卖数据同步 + 时区..."
+mkdir -p "$APP_DIR/server/data" "$APP_DIR/server/uploads"
+# 数据保护：服务器上已采集的数据库绝不覆盖（重复部署/升级时安全）
+if [ -f "$APP_DIR/server/data/app.db" ]; then
+  echo "    检测到已有数据库 app.db（$(du -h "$APP_DIR/server/data/app.db" | cut -f1)），保留不覆盖"
+else
+  echo "    首次部署：无历史数据库，将由导入脚本初始化空库与种子数据"
+fi
+# 拍卖商品数据定向导入：只写 auctions/bids/orders + 关联用户钱包，
+# 已抓取的 goods 等游戏数据完全不受影响；脚本幂等，可重复执行
+node "$APP_DIR/deploy/import-auction-data.mjs"
 timedatectl set-timezone Asia/Shanghai || true
 
 echo "==> [6/6] 安装 systemd 服务..."
@@ -61,6 +77,13 @@ WorkingDirectory=$APP_DIR/server
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=TZ=Asia/Shanghai
+# 邮件提醒渠道（可选）：取消注释并填入 SMTP 配置后，勾选"邮件"渠道的用户将收到真实邮件
+# QQ/163 等邮箱的 SMTP_PASS 是网页设置里单独开通的授权码，不是登录密码
+#Environment=SMTP_HOST=smtp.qq.com
+#Environment=SMTP_PORT=465
+#Environment=SMTP_USER=your_qq@qq.com
+#Environment=SMTP_PASS=your_smtp_auth_code
+#Environment=SMTP_FROM=your_qq@qq.com
 ExecStart=$(command -v node) src/index.js
 Restart=always
 RestartSec=5

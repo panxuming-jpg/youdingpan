@@ -1,9 +1,12 @@
-// 与后端 db.js 中 PLATFORMS 保持一致的真实平台
+// 与后端 db.js 中 PLATFORMS 保持一致（含聚合选项 all）
 export const PLATFORMS = [
+  { key: 'all', name: '全部平台' },
   { key: 'jiaoyimao', name: '交易猫' },
   { key: 'panzhi', name: '盼之代售' },
   { key: 'pangxie', name: '螃蟹账号' },
   { key: '7881', name: '7881' },
+  { key: 'dd373', name: 'DD373' },
+  { key: '5173', name: '5173' },
 ];
 
 const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map(p => [p.key, p.name]));
@@ -45,6 +48,8 @@ export const PLATFORM_LINKS = {
   panzhi: 'https://www.pzds.com/',
   pangxie: 'https://www.pxb7.com/',
   7881: 'https://www.7881.com/',
+  dd373: 'https://www.dd373.com/',
+  5173: 'https://s.5173.com/',
 };
 
 export const CATEGORIES = ['手游', '端游'];

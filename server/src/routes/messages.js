@@ -6,7 +6,9 @@ import { relTime } from '../util.js';
 const r = Router();
 r.use('/messages', authRequired);
 
-const TYPE_LABEL = { new: '新上架', drop: '降价', off: '已下架', system: '系统' };
+const TYPE_LABEL = { new: '新上架', drop: '降价', off: '已下架', fav_drop: '收藏降价', fav_off: '收藏下架', system: '系统', auction: '拍卖' };
+// 前端"收藏动态"tab 聚合两种收藏事件
+const TAB_TYPES = { fav: ['fav_drop', 'fav_off'] };
 
 r.get('/messages', (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -14,7 +16,13 @@ r.get('/messages', (req, res) => {
   const type = req.query.type;
   const where = ['user_id=?'];
   const params = [req.user.id];
-  if (type && TYPE_LABEL[type]) { where.push('type=?'); params.push(type); }
+  if (type && TAB_TYPES[type]) {
+    where.push(`type IN (${TAB_TYPES[type].map(() => '?').join(',')})`);
+    params.push(...TAB_TYPES[type]);
+  } else if (type && TYPE_LABEL[type]) {
+    where.push('type=?');
+    params.push(type);
+  }
   const whereSql = 'WHERE ' + where.join(' AND ');
   const total = db.prepare(`SELECT COUNT(*) AS c FROM notifications ${whereSql}`).get(...params).c;
   const unread = db.prepare('SELECT COUNT(*) AS c FROM notifications WHERE user_id=? AND is_read=0').get(req.user.id).c;

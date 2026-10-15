@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from '../api.js';
 import { PLATFORMS, NOTIFY_TYPES, CHANNELS, fmtPrice } from '../utils.js';
 import { toast } from '../toast.js';
+import { store } from '../store.js';
 import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
 
@@ -13,6 +14,8 @@ const showModal = ref(false);
 const editing = ref(null); // null=新建，否则为待编辑任务
 const saving = ref(false);
 const confirmDelete = ref(null);
+const userEmail = ref('');
+const mailEnabled = ref(true);
 
 const emptyForm = () => ({
   name: '',
@@ -21,12 +24,18 @@ const emptyForm = () => ({
   platforms: [],
   price_min: '',
   price_max: '',
+  keywords: '',
   notify_types: [],
   drop_threshold: '',
   channels: ['inapp'],
   status: 'on',
 });
 const form = reactive(emptyForm());
+
+// 监控游戏下拉框：只列出平台当前已有在售商品的游戏（编辑时保留任务已选游戏）
+const monitorGames = computed(() =>
+  games.value.filter(g => g.goods_count > 0 || g.id === Number(form.game_id))
+);
 
 const serverOptions = computed(() => {
   const g = games.value.find(g => g.id === Number(form.game_id));
@@ -46,6 +55,7 @@ function priceText(t) {
 function openCreate() {
   editing.value = null;
   Object.assign(form, emptyForm());
+  userEmail.value = store.user?.email || '';
   showModal.value = true;
 }
 
@@ -58,11 +68,13 @@ function openEdit(t) {
     platforms: [...t.platforms],
     price_min: t.price_min ?? '',
     price_max: t.price_max ?? '',
+    keywords: t.keywords || '',
     notify_types: [...t.notify_types],
     drop_threshold: t.drop_threshold || '',
     channels: t.channels?.length ? [...t.channels] : ['inapp'],
     status: t.status,
   });
+  userEmail.value = store.user?.email || '';
   showModal.value = true;
 }
 
@@ -75,6 +87,22 @@ function toggleArr(key, value) {
   const i = arr.indexOf(value);
   if (i >= 0) arr.splice(i, 1);
   else arr.push(value);
+}
+
+// 平台选择：all 为聚合选项，选中时取消其他；选其他时取消 all
+function togglePlatform(key) {
+  const arr = form.platforms;
+  if (key === 'all') {
+    const i = arr.indexOf('all');
+    if (i >= 0) arr.splice(i, 1);
+    else { arr.length = 0; arr.push('all'); }
+  } else {
+    const ai = arr.indexOf('all');
+    if (ai >= 0) arr.splice(ai, 1);
+    const i = arr.indexOf(key);
+    if (i >= 0) arr.splice(i, 1);
+    else arr.push(key);
+  }
 }
 
 function toggleChannel(key) {
@@ -98,6 +126,11 @@ async function save() {
   if (!form.game_id) return toast.error('请选择监控游戏');
   if (!form.platforms.length) return toast.error('请至少选择一个监控平台');
   if (!form.notify_types.length) return toast.error('请至少选择一种监控类型');
+  // 选择邮件渠道时必须填写接收邮箱（保存任务时同步到账号资料）
+  if (form.channels.includes('email')) {
+    if (!userEmail.value.trim()) return toast.error('请填写接收邮件提醒的邮箱');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail.value.trim())) return toast.error('邮箱格式不正确');
+  }
 
   const payload = {
     name: form.name.trim(),
@@ -106,6 +139,7 @@ async function save() {
     platforms: form.platforms,
     price_min: form.price_min === '' ? null : Number(form.price_min),
     price_max: form.price_max === '' ? null : Number(form.price_max),
+    keywords: form.keywords.trim(),
     notify_types: form.notify_types,
     drop_threshold: form.notify_types.includes('drop') && form.drop_threshold !== '' ? Number(form.drop_threshold) : 0,
     channels: form.channels.length ? form.channels : ['inapp'],
@@ -117,6 +151,11 @@ async function save() {
 
   saving.value = true;
   try {
+    // 邮件渠道：先把用户填写的邮箱同步到账号资料（有变更才请求）
+    if (form.channels.includes('email') && userEmail.value.trim() !== (store.user?.email || '')) {
+      const u = await api('/me', { method: 'PUT', body: { email: userEmail.value.trim() } });
+      store.user = u;
+    }
     if (editing.value) {
       await api(`/tasks/${editing.value.id}`, { method: 'PUT', body: payload });
       toast.success('任务已更新');
@@ -158,6 +197,7 @@ async function doDelete() {
 
 onMounted(async () => {
   api('/games').then(gs => { games.value = gs; }).catch(() => {});
+  api('/mail/status').then(d => { mailEnabled.value = !!d.enabled; }).catch(() => {});
   load();
 });
 </script>
@@ -192,6 +232,7 @@ onMounted(async () => {
           <span>游戏：<b style="color:var(--text)">{{ t.game_name }}</b></span>
           <span>区服：{{ t.server_name || '全部' }}</span>
           <span>价格：{{ priceText(t) }}</span>
+          <span v-if="t.keywords">关键词：<b style="color:var(--text)">{{ t.keywords }}</b></span>
           <span>监控：{{ t.notify_types.map(x => notifyMap[x] || x).join(' / ') }}</span>
           <span v-if="t.notify_types.includes('drop') && t.drop_threshold > 0">降价阈值：≥ {{ fmtPrice(t.drop_threshold) }}</span>
         </div>
@@ -230,8 +271,9 @@ onMounted(async () => {
             <label class="form-label">监控游戏<span class="req">*</span></label>
             <select v-model="form.game_id" class="select" @change="onGameChange">
               <option value="">请选择游戏</option>
-              <option v-for="g in games" :key="g.id" :value="g.id">{{ g.name }}</option>
+              <option v-for="g in monitorGames" :key="g.id" :value="g.id">{{ g.name }}</option>
             </select>
+            <div class="form-hint">仅显示当前有在售商品的游戏</div>
           </div>
           <div>
             <label class="form-label">区服（可选）</label>
@@ -252,10 +294,11 @@ onMounted(async () => {
               :class="{ active: form.platforms.includes(p.key) }"
               role="button"
               tabindex="0"
-              @click="toggleArr('platforms', p.key)"
-              @keydown.enter.prevent="toggleArr('platforms', p.key)"
+              @click="togglePlatform(p.key)"
+              @keydown.enter.prevent="togglePlatform(p.key)"
             >{{ p.name }}</span>
           </div>
+          <div class="form-hint">选择"全部平台"即监控所有平台的新动态</div>
         </div>
 
         <div class="form-row form-item">
@@ -267,6 +310,12 @@ onMounted(async () => {
             <label class="form-label">价格上限</label>
             <input v-model="form.price_max" class="input" type="number" min="0" placeholder="不限" />
           </div>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">关键词（可选）</label>
+          <input v-model="form.keywords" class="input" maxlength="100" placeholder="如：满命 胡桃 专武" />
+          <div class="form-hint">多个关键词用空格分隔，商品标题或区服命中任一关键词才触发提醒；不填则不过滤</div>
         </div>
 
         <div class="form-item">
@@ -295,6 +344,12 @@ onMounted(async () => {
               />
               {{ c.label }}{{ c.key === 'inapp' ? '（默认开启）' : '' }}
             </label>
+          </div>
+          <!-- 选择邮件渠道时要求填写接收邮箱，保存任务时同步到账号资料 -->
+          <div v-if="form.channels.includes('email')" class="mt8" style="max-width:320px">
+            <input v-model="userEmail" class="input" type="email" maxlength="50" placeholder="接收邮件提醒的邮箱地址" />
+            <div class="form-hint" v-if="mailEnabled">保存任务时将同步更新到你的账号邮箱</div>
+            <div class="form-hint" v-else style="color:var(--danger)">服务器暂未配置 SMTP，邮件提醒不会实际发出，仅作配置保存</div>
           </div>
         </div>
 

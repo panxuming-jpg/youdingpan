@@ -16,6 +16,7 @@ const TABS = [
   { key: 'new', label: '新上架' },
   { key: 'drop', label: '降价' },
   { key: 'off', label: '已下架' },
+  { key: 'fav', label: '收藏动态' },
   { key: 'system', label: '系统' },
 ];
 
@@ -27,7 +28,7 @@ const unread = ref(0);
 const list = ref([]);
 const loading = ref(false);
 
-const TYPE_COLORS = { new: 'badge-success', drop: 'badge-warning', off: 'badge-danger', system: 'badge-primary' };
+const TYPE_COLORS = { new: 'badge-success', drop: 'badge-warning', off: 'badge-danger', fav_drop: 'badge-warning', fav_off: 'badge-danger', system: 'badge-primary' };
 
 async function load() {
   loading.value = true;

@@ -23,6 +23,14 @@ const EDGE = process.env.BROWSER_EXECUTABLE_PATH && fs.existsSync(process.env.BR
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0';
 const MUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+// 代理策略：采集目标全部是国内平台（交易猫/盼之/螃蟹/7881/DD373），
+// 默认强制直连、忽略系统代理——本机开 Clash/V2Ray 等（系统代理出口为境外节点）时，
+// 7881 等平台会直接 403（"您的请求有些频繁 ... guowai"，按境外 IP 封禁）。
+// 如需走代理采集，显式设置环境变量 CRAWL_PROXY_SERVER（如 http://127.0.0.1:7890）。
+const PROXY_ARGS = process.env.CRAWL_PROXY_SERVER
+  ? [`--proxy-server=${process.env.CRAWL_PROXY_SERVER}`]
+  : ['--no-proxy-server'];
+
 const rand = (min, max) => min + Math.random() * (max - min);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -38,7 +46,7 @@ export async function ensureBrowser() {
     executablePath: EDGE,
     headless: 'new',
     protocolTimeout: 60_000,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1400,900'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1400,900', ...PROXY_ARGS],
   });
   browser.on('disconnected', () => { browser = null; });
   return browser;
@@ -58,6 +66,7 @@ export async function closeBrowser() {
  * @param {RegExp} [opts.xhrFilter] 拦截匹配的 XHR URL
  * @param {boolean} [opts.scroll] 是否滚动触发更多 XHR（默认 false）
  * @param {boolean} [opts.mobile] 移动端 UA+视口（默认 false）
+ * @param {Array} [opts.cookies] page.cookies() 格式的 cookie 数组，goto 前注入（带 WAF 验证 cookie 的平台用，如 DD373）
  * @param {function} [opts.evaluate] 等待结束后在页面执行，返回数据
  * @returns {Promise<{responses: Array<{url, body}>, evalResult: any, title: string, status: number}>}
  */
@@ -91,9 +100,13 @@ async function humanBrowse(page, mobile, totalMs) {
   if (remain > 0) await sleep(remain * rand(0.85, 1.1));
 }
 
-export async function openPage({ url, waitMs = 8000, xhrFilter, scroll = false, mobile = false, evaluate }) {
+export async function openPage({ url, waitMs = 8000, xhrFilter, scroll = false, mobile = false, cookies, evaluate }) {
   const b = await ensureBrowser();
   const page = await b.newPage();
+  // 注入平台验证 cookie（DD373 阿里云 ESA 滑块通过后的信任 cookie）
+  if (Array.isArray(cookies) && cookies.length) {
+    await page.setCookie(...cookies).catch(err => console.warn(`[collector] cookie 注入失败: ${err.message}`));
+  }
   await page.setUserAgent(mobile ? MUA : UA);
   // 每次随机 viewport（基准 ±5%），模拟不同窗口尺寸
   if (mobile) {
@@ -163,6 +176,35 @@ export async function withHumanMobilePage({ url = 'https://m1.pxb7.com/', warmMs
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
   // 预热：触摸式分段滚动 + 随机停留（约 8~12s），帮助无感验证静默通过
   await humanBrowse(page, true, warmMs ?? rand(8000, 12000));
+  try {
+    return await fn(page);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+/**
+ * 拟人 PC 页会话：打开 PC 站预热（滚动 + 随机停留建立会话 cookie），
+ * 在同一页面 JS 上下文内执行 fn(page) —— 适配器可用 page.evaluate(fetch) 直接调同域接口，
+ * 自动携带页面 cookie。用于列表接口需先有页面会话的平台（5173）。
+ */
+export async function withHumanPcPage({ url, warmMs } = {}, fn) {
+  const b = await ensureBrowser();
+  const page = await b.newPage();
+  await page.setUserAgent(UA);
+  await page.setViewport({
+    width: Math.round(rand(1366, 1440)), height: Math.round(rand(820, 900)),
+    deviceScaleFactor: 1,
+  });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  });
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }).catch(() => {});
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+  // 预热：分段滚动 + 随机停留（约 6~10s），让会话 cookie 下发
+  await humanBrowse(page, false, warmMs ?? rand(6000, 10000));
   try {
     return await fn(page);
   } finally {

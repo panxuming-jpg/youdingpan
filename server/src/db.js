@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS goods (
 -- 老库升级：补 source_url 列（SQLite 不支持 ADD COLUMN IF NOT EXISTS，try 忽略重复列错误）
 `);
 try { db.exec('ALTER TABLE goods ADD COLUMN source_url TEXT DEFAULT ""'); } catch (e) { /* 列已存在 */ }
+// 监控任务关键词过滤：空格分隔，命中任一关键词（标题/区服）才触发提醒，空串=不过滤
+try { db.exec(`ALTER TABLE monitor_tasks ADD COLUMN keywords TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+// 游戏展示顺序（前端 tab 排序依据；未设置的排最后）
+try { db.exec('ALTER TABLE games ADD COLUMN sort_order INTEGER DEFAULT 999'); } catch (e) { /* 列已存在 */ }
+const GAME_ORDER = [
+  '王者荣耀', '和平精英', '三角洲行动', '无畏契约', '三国杀',
+  '原神', '火影忍者', '鸣潮', '穿越火线（CF）', '崩坏：星穹铁道', '暗区突围',
+];
+const updOrder = db.prepare('UPDATE games SET sort_order=? WHERE name=?');
+GAME_ORDER.forEach((name, i) => updOrder.run(i + 1, name));
 db.exec(`
 CREATE TABLE IF NOT EXISTS price_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +123,16 @@ CREATE TABLE IF NOT EXISTS notified_events (
 CREATE TABLE IF NOT EXISTS favorites (
   user_id INTEGER NOT NULL,
   goods_id INTEGER NOT NULL,
+  created_at INTEGER,
+  PRIMARY KEY (user_id, goods_id)
+);
+-- 收藏商品降价监控：收藏时以当时价格为基线（baseline_price），
+-- 之后采集到低于基线的价格或商品下架时，向收藏用户发送 fav_drop / fav_off 提醒
+CREATE TABLE IF NOT EXISTS fav_price_watch (
+  user_id INTEGER NOT NULL,
+  goods_id INTEGER NOT NULL,
+  baseline_price REAL,
+  status TEXT DEFAULT 'on',
   created_at INTEGER,
   PRIMARY KEY (user_id, goods_id)
 );
@@ -200,23 +220,46 @@ if (platCount === 0) {
   const plats = [
     ['jiaoyimao', '交易猫'], ['panzhi', '盼之代售'],
     ['pangxie', '螃蟹账号'], ['7881', '7881'],
+    ['dd373', 'DD373'], ['5173', '5173'],
   ];
   for (const [p, n] of plats) ins.run(p, n, 1, 'normal', null, 0);
 }
-// 老库清理：禁用已下线的模拟兜底平台（藏宝阁/5173），让其不再被引擎调度
-db.prepare(`UPDATE platform_status SET running=0 WHERE platform IN ('cangbaoge','5173')`).run();
+// 老库清理：禁用已下线的模拟兜底平台（藏宝阁），让其不再被引擎调度
+// 注意：5173 已升级为真实采集平台（s5173.js），不在禁用之列
+db.prepare(`UPDATE platform_status SET running=0 WHERE platform IN ('cangbaoge')`).run();
+
+// dd373 / 5173 平台注册（幂等，兼容已初始化的旧库）
+db.prepare(`INSERT INTO platform_status (platform, name, running, status, last_run, total_ok)
+  SELECT 'dd373', 'DD373', 1, 'normal', NULL, 0
+  WHERE NOT EXISTS (SELECT 1 FROM platform_status WHERE platform='dd373')`).run();
+db.prepare(`INSERT INTO platform_status (platform, name, running, status, last_run, total_ok)
+  SELECT '5173', '5173', 1, 'normal', NULL, 0
+  WHERE NOT EXISTS (SELECT 1 FROM platform_status WHERE platform='5173')`).run();
+// 5173 升级为真实采集平台后确保处于启用状态（老库可能残留 running=0）
+db.prepare(`UPDATE platform_status SET running=1, name='5173' WHERE platform='5173'`).run();
 
 // 修正游戏短名：无畏契约的旧短名"瓦罗兰特"统一为官方游戏名"无畏契约"
 db.prepare(`UPDATE games SET short_name='无畏契约' WHERE name='无畏契约' AND short_name='瓦罗兰特'`).run();
 
 // 老库清理：删除所有模拟兜底商品（需求4：只保留真实抓取的数据）
-// - 藏宝阁/5173 平台所有商品（已下线平台）
-// - 模拟商品 id 含 '-'（如 7881-xxx / PANZHI-xxx / JIAOYIMAO-xxx / CANGBAOGE-xxx 等）
-db.prepare(`DELETE FROM goods WHERE platform IN ('cangbaoge','5173')`).run();
+// - 藏宝阁平台所有商品（已下线平台）
+// - 模拟商品 id 含 '-'（如 7881-xxx / PANZHI-xxx / JIAOYIMAO-xxx / CANGBAOGE-xxx / 5173-xxx 等）
+//   5173 真实商品 id 为纯数字（goods_no），不受影响
+db.prepare(`DELETE FROM goods WHERE platform IN ('cangbaoge')`).run();
 db.prepare(`DELETE FROM goods WHERE platform_item_id LIKE '%-%'`).run();
-// 同步清理孤立的价格历史和收藏
+// 同步清理孤立的价格历史、收藏与收藏监控
 db.prepare(`DELETE FROM price_history WHERE goods_id NOT IN (SELECT id FROM goods)`).run();
 db.prepare(`DELETE FROM favorites WHERE goods_id NOT IN (SELECT id FROM goods)`).run();
+db.prepare(`DELETE FROM fav_price_watch WHERE goods_id NOT IN (SELECT id FROM goods)`).run();
+// 老库清理：历史任务/通知中的藏宝阁平台引用（已下线平台，无适配器）
+db.prepare(`DELETE FROM monitor_tasks WHERE platforms LIKE '%cangbaoge%'`).run();
+db.prepare(`DELETE FROM platform_game_codes WHERE platform='cangbaoge'`).run();
+db.prepare(`DELETE FROM notifications WHERE type IN ('new','drop','off') AND goods_id NOT IN (SELECT id FROM goods)`).run();
+
+// 修复 7881 历史坏详情链接：旧适配器写入的 {goodsId}lmth.（"html"反写防爬）现已 404，
+// 真实详情页为 search 子域 /{goodsId}.html（幂等 REPLACE，只处理 lmth. 结尾的旧链接）
+db.prepare(`UPDATE goods SET source_url = REPLACE(source_url, 'lmth.', '.html')
+  WHERE platform='7881' AND source_url LIKE '%lmth.'`).run();
 
 const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
 if (userCount === 0) {
@@ -306,6 +349,30 @@ const codeSeed = [
   ['panzhi', '穿越火线（CF）', '16', '', ''],
   ['panzhi', '崩坏：星穹铁道', '213', '', ''],
   ['panzhi', '暗区突围', '77', '', ''],
+  // dd373：11 款全覆盖，按发布时间排序；biz_prod 存 URL 第 7 段类型码（大部分游戏 0；鸣潮=49c95j、星穹铁道=e19wb7）
+  ['dd373', '王者荣耀', '33vu84', '', ''],
+  ['dd373', '和平精英', 's25gb3', '', ''],
+  ['dd373', '三角洲行动', 'gp1gaj', '', ''],
+  ['dd373', '无畏契约', 'a2d697', '', ''],
+  ['dd373', '三国杀', 'tgu3c3', '', ''],
+  ['dd373', '原神', 'uuuw1v', '', ''],
+  ['dd373', '火影忍者', 'n162b3', '', ''],
+  ['dd373', '鸣潮', '8gmxpn', '49c95j', ''],
+  ['dd373', '穿越火线（CF）', 'mmgv1b', '', ''],
+  ['dd373', '崩坏：星穹铁道', '282cu3', 'e19wb7', ''],
+  ['dd373', '暗区突围', 'cvnevp', '', ''],
+  // 5173：11 款全覆盖，g/accounts 接口 sort=1 即按发布时间倒序；platform_game_code 存 game_id
+  ['5173', '王者荣耀', '28', '', ''],
+  ['5173', '和平精英', '29', '', ''],
+  ['5173', '三角洲行动', '386', '', ''],
+  ['5173', '无畏契约', '152', '', ''],
+  ['5173', '三国杀', '241', '', ''],
+  ['5173', '原神', '243', '', ''],
+  ['5173', '火影忍者', '252', '', ''],
+  ['5173', '鸣潮', '578', '', ''],
+  ['5173', '穿越火线（CF）', '17', '', ''],
+  ['5173', '崩坏：星穹铁道', '642', '', ''],
+  ['5173', '暗区突围', '247', '', ''],
 ];
 // 清理已废弃的旧映射（交易猫旧 gameCode g2416 等，被新 jg1002416 等替代）
 db.prepare(`DELETE FROM platform_game_codes WHERE platform='jiaoyimao' AND platform_game_code IN ('g2416','g6473','g15029','g23529')`).run();
@@ -322,14 +389,210 @@ for (const [platform, gameName, code, bizProd, note] of codeSeed) {
   insCode.run(platform, g.id, code, bizProd, note);
 }
 
+// 'all' 为"全部平台"聚合选项：仅用于筛选/监控匹配，不产生采集数据
 export const PLATFORMS = {
+  all: '全部平台',
   jiaoyimao: '交易猫',
   panzhi: '盼之代售',
   pangxie: '螃蟹账号',
   7881: '7881',
+  dd373: 'DD373',
+  5173: '5173',
 };
+
+// 真实采集平台（不含聚合选项 'all'）
+export const REAL_PLATFORMS = Object.keys(PLATFORMS).filter(p => p !== 'all');
 
 export function parseJSON(v, dflt) {
   if (v === null || v === undefined) return dflt;
   try { const r = JSON.parse(v); return r ?? dflt; } catch { return dflt; }
+}
+
+// ---------- 游拍卖板块：表结构 ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS auctions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_id INTEGER NOT NULL,
+  game_id INTEGER NOT NULL,
+  server_id INTEGER,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  images TEXT DEFAULT '[]',
+  start_price REAL NOT NULL,
+  increment REAL NOT NULL,
+  reserve_price REAL,
+  deposit_rate REAL DEFAULT 0.1,
+  duration INTEGER NOT NULL,
+  start_at INTEGER NOT NULL,
+  end_at INTEGER NOT NULL,
+  extend_count INTEGER DEFAULT 0,
+  max_extend INTEGER DEFAULT 10,
+  status TEXT DEFAULT 'pending',
+  winner_id INTEGER,
+  final_price REAL,
+  order_id INTEGER,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_auction_status_end ON auctions(status, end_at);
+CREATE INDEX IF NOT EXISTS idx_auction_seller ON auctions(seller_id);
+CREATE INDEX IF NOT EXISTS idx_auction_game ON auctions(game_id);
+
+CREATE TABLE IF NOT EXISTS bids (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  auction_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  amount REAL NOT NULL,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_bids_auction ON bids(auction_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bids_user ON bids(user_id);
+
+CREATE TABLE IF NOT EXISTS auction_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  auction_id INTEGER NOT NULL,
+  buyer_id INTEGER NOT NULL,
+  seller_id INTEGER NOT NULL,
+  amount REAL NOT NULL,
+  status TEXT DEFAULT 'pending_payment',
+  paid_at INTEGER,
+  confirmed_at INTEGER,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ao_buyer ON auction_orders(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_ao_seller ON auction_orders(seller_id);
+
+CREATE TABLE IF NOT EXISTS wallets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER UNIQUE NOT NULL,
+  balance REAL DEFAULT 10000.0,
+  frozen REAL DEFAULT 0.0,
+  created_at INTEGER
+);
+`);
+
+// 给所有老用户补 wallet（演示模式每人 10000 模拟金）
+const walletCount = db.prepare('SELECT COUNT(*) AS c FROM wallets').get().c;
+if (walletCount === 0) {
+  const users = db.prepare('SELECT id FROM users').all();
+  const insWallet = db.prepare('INSERT INTO wallets (user_id, balance, frozen, created_at) VALUES (?,10000.0,0,?)');
+  for (const u of users) insWallet.run(u.id, now);
+}
+
+// ---------- 付费会员 + 担保交易支付：表结构 ----------
+db.exec(`
+-- 平台可配置项（后台可改：免费查看限额、会员价格、提现规则等）
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- 统一支付单：会员订阅 / 拍卖订单共用，唯一单号可溯源
+CREATE TABLE IF NOT EXISTS pay_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_no TEXT UNIQUE NOT NULL,
+  user_id INTEGER NOT NULL,
+  scene TEXT NOT NULL,              -- member | auction
+  ref_id INTEGER,                   -- scene=auction 时为 auction_orders.id
+  subject TEXT NOT NULL,
+  amount REAL NOT NULL,
+  channel TEXT DEFAULT '',          -- wechat | alipay | mock
+  status TEXT DEFAULT 'pending',    -- pending | paid | closed | timeout
+  expire_at INTEGER,
+  paid_at INTEGER,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_po_user ON pay_orders(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_po_scene ON pay_orders(scene, status);
+-- 免费用户商品详情查看记录（永久累计去重计数；mode=daily 时按 created_at 当日计）
+CREATE TABLE IF NOT EXISTS goods_view_logs (
+  user_id INTEGER NOT NULL,
+  goods_id INTEGER NOT NULL,
+  created_at INTEGER,
+  PRIMARY KEY (user_id, goods_id)
+);
+-- 卖家余额提现单
+CREATE TABLE IF NOT EXISTS withdraw_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  amount REAL NOT NULL,
+  fee REAL DEFAULT 0,
+  channel TEXT NOT NULL,            -- wechat | alipay
+  account TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',    -- pending | paid | rejected
+  remark TEXT DEFAULT '',
+  created_at INTEGER,
+  processed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_wd_user ON withdraw_orders(user_id, created_at DESC);
+-- 全量资金流水（会员支付、拍卖担保、结算、退款、提现、手续费）
+CREATE TABLE IF NOT EXISTS fund_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,                  -- 关联用户；平台收入类为空
+  biz TEXT NOT NULL,                -- member_pay | auction_pay | escrow_settle | refund | withdraw | withdraw_reject | fee
+  amount REAL NOT NULL,
+  direction TEXT NOT NULL,          -- in | out
+  ref_no TEXT DEFAULT '',
+  channel TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fl_user ON fund_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fl_biz ON fund_logs(biz, created_at DESC);
+`);
+
+// 用户会员有效期（毫秒时间戳，0/NULL=非会员）
+try { db.exec('ALTER TABLE users ADD COLUMN member_expire_at INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+// 拍卖订单担保交易扩展列
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN pay_order_no TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN ship_company TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN ship_no TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN shipped_at INTEGER`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN auto_confirm_at INTEGER`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN after_sale_reason TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+try { db.exec(`ALTER TABLE auction_orders ADD COLUMN refunded_at INTEGER`); } catch (e) { /* 列已存在 */ }
+
+// 平台可配置项默认值（幂等；后台可修改）
+const DEFAULT_SETTINGS = {
+  free_view_limit: '10',        // 免费用户可查看商品详情数量上限
+  view_count_mode: 'permanent', // permanent=永久累计 | daily=每日重置
+  member_price: '9.9',          // 会员月卡价格（元）
+  member_days: '30',            // 会员单次订阅天数
+  member_benefits: '解锁全部商品详情查看，不限次数；新上架/降价提醒优先送达',
+  order_fee_rate: '0.05',       // 拍卖订单平台手续费率（确认收货时从货款扣除）
+  auto_confirm_days: '7',       // 卖家发货后自动确认收货天数
+  withdraw_min: '0',            // 单笔最低提现金额
+  withdraw_fee_rate: '0',       // 提现手续费率
+  withdraw_free_threshold: '0', // 单笔提现 ≥ 该金额免手续费（0=不启用）
+};
+const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)');
+for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
+
+export function getSetting(key, dflt = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return row ? row.value : dflt;
+}
+export function getSettingNum(key, dflt = 0) {
+  const n = Number(getSetting(key, ''));
+  return Number.isFinite(n) ? n : dflt;
+}
+export function setSetting(key, value) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(key, String(value));
+}
+
+// 会员判断与开通/续费（有效期顺延：在 max(当前有效期, 现在) 基础上 +days）
+export function isMember(userId) {
+  const u = db.prepare('SELECT member_expire_at FROM users WHERE id=?').get(userId);
+  return !!u && (u.member_expire_at || 0) > Date.now();
+}
+export function extendMembership(userId, days) {
+  const u = db.prepare('SELECT member_expire_at FROM users WHERE id=?').get(userId);
+  const base = Math.max(Date.now(), u?.member_expire_at || 0);
+  const expire = base + days * 86_400_000;
+  db.prepare('UPDATE users SET member_expire_at=? WHERE id=?').run(expire, userId);
+  return expire;
+}
+
+export function fundLog({ userId = null, biz, amount, direction, refNo = '', channel = '', remark = '' }) {
+  db.prepare('INSERT INTO fund_logs (user_id, biz, amount, direction, ref_no, channel, remark, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(userId, biz, amount, direction, refNo, channel, remark, Date.now());
 }
