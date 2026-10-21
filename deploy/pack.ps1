@@ -45,6 +45,12 @@ if (Test-Path "$root\web\dist") {
 # ---------- deploy scripts ----------
 Copy-Item "$root\deploy" "$stage\deploy" -Recurse
 
+# ---------- docs: project summary (md) + intro (pdf), copied by extension ----------
+# (avoid Chinese filename literals: PS5.1 misreads UTF-8-no-BOM scripts)
+Get-ChildItem $root -File -Filter *.md  | Copy-Item -Destination "$stage\"
+Get-ChildItem $root -File -Filter *.pdf | Copy-Item -Destination "$stage\"
+Get-ChildItem $stage -File | ForEach-Object { Write-Host "  staged doc: $($_.Name)" }
+
 # ---------- export auction data (auctions/bids/orders + related users/wallets) ----------
 # This is a separate data file: on the server it is imported ONLY into the
 # auction tables. The remote crawled game database is never overwritten.
