@@ -38,6 +38,7 @@ function deductFrozen(userId, amount) {
   db.prepare('UPDATE wallets SET frozen=frozen-? WHERE user_id=?').run(amount, userId);
 }
 function addBalance(userId, amount) {
+  getWallet(userId); // 确保钱包行存在（新用户首次入账）
   db.prepare('UPDATE wallets SET balance=balance+? WHERE user_id=?').run(amount, userId);
 }
 
@@ -163,4 +164,4 @@ export function startAuctionEngine() {
 }
 
 // 导出供路由层实时调用（出价后检查是否需要立即结算；确认收货复用 settleOrder）
-export { scanAndSettle, notify, getWallet, freeze, unfreeze, addBalance, settleOrder, calcDeposit as auctionDeposit };
+export { scanAndSettle, notify, getWallet, freeze, unfreeze, deductFrozen, addBalance, settleOrder, calcDeposit as auctionDeposit };

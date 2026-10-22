@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { CHANNELS, fmtDateTime, fmtPrice } from '../utils.js';
@@ -110,12 +110,44 @@ function payStatusLabel(s) {
   return { pending: '待支付', paid: '支付成功', closed: '已关闭', timeout: '已超时' }[s] || s;
 }
 
+// ---------- 实名认证与自营交易入口 ----------
+const sellerStatus = ref(null);
+const rnForm = reactive({ real_name: '', id_card: '' });
+const rnSaving = ref(false);
+
+async function loadSellerStatus() {
+  try {
+    sellerStatus.value = await api('/seller/status');
+  } catch { /* 静默 */ }
+}
+
+const isVerified = computed(() => !!(sellerStatus.value?.real_name && sellerStatus.value?.face_verified));
+
+async function submitRealname() {
+  if (!rnForm.real_name.trim() || rnForm.real_name.trim().length < 2) return toast.error('请填写真实姓名');
+  if (!/^\d{17}[\dXx]$/.test(rnForm.id_card.trim())) return toast.error('身份证号格式不正确（18 位）');
+  rnSaving.value = true;
+  try {
+    await api('/seller/realname', { method: 'POST', body: { real_name: rnForm.real_name.trim(), id_card: rnForm.id_card.trim() } });
+    toast.success('实名认证成功（演示：人脸核验已通过）');
+    rnForm.real_name = '';
+    rnForm.id_card = '';
+    await loadSellerStatus();
+    try { store.user = await api('/me'); } catch { /* 忽略 */ }
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    rnSaving.value = false;
+  }
+}
+
 onMounted(async () => {
   if (store.user) {
     fillFromUser(store.user);
   }
   api('/mail/status').then(d => { mailEnabled.value = !!d.enabled; }).catch(() => {});
   loadMember();
+  loadSellerStatus();
   // 拉取最新资料，避免与其他端的修改不同步
   try {
     const d = await api('/me');
@@ -192,6 +224,47 @@ onMounted(async () => {
           <div class="card-title">我的钱包</div>
           <p class="muted small" style="line-height:1.7">拍卖卖出货款结算后进入钱包余额，可申请提现至微信 / 支付宝。</p>
           <RouterLink to="/wallet"><button class="btn btn-ghost btn-block mt8">查看余额与提现</button></RouterLink>
+        </div>
+
+        <!-- 实名认证 -->
+        <div class="card card-pad">
+          <div class="card-title">实名认证</div>
+          <template v-if="isVerified">
+            <dl class="kv-list">
+              <dt>真实姓名</dt><dd>{{ sellerStatus.real_name }}</dd>
+              <dt>身份证号</dt><dd>{{ sellerStatus.id_card_mask }}</dd>
+              <dt>人脸核验</dt><dd><span class="badge badge-success">已通过</span></dd>
+            </dl>
+            <div v-if="sellerStatus.seller_status" class="muted small mt8">
+              卖家资质状态：
+              <span class="badge" :class="{ approved: 'badge-success', pending: 'badge-warning', rejected: 'badge-danger' }[sellerStatus.seller_status] || ''">
+                {{ { approved: '已通过', pending: '审核中', rejected: '已驳回', banned: '已封禁' }[sellerStatus.seller_status] || sellerStatus.seller_status }}
+              </span>
+              <template v-if="sellerStatus.reject_reason">（{{ sellerStatus.reject_reason }}）</template>
+            </div>
+          </template>
+          <form v-else @submit.prevent="submitRealname">
+            <p class="muted small" style="line-height:1.6">自营下单、卖家发布、鉴号专家入驻均需先完成实名认证（演示环境模拟人脸核验即时通过）。</p>
+            <div class="form-item">
+              <label class="form-label">真实姓名</label>
+              <input v-model="rnForm.real_name" class="input" maxlength="20" placeholder="与身份证一致" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">身份证号</label>
+              <input v-model="rnForm.id_card" class="input" maxlength="18" placeholder="18 位身份证号" />
+            </div>
+            <button class="btn btn-primary btn-block" type="submit" :disabled="rnSaving">{{ rnSaving ? '提交中…' : '提交实名认证' }}</button>
+          </form>
+        </div>
+
+        <!-- 自营交易入口 -->
+        <div class="card card-pad">
+          <div class="card-title">自营交易</div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <RouterLink to="/seller"><button class="btn btn-ghost btn-block">卖家中心（发布与管理）</button></RouterLink>
+            <RouterLink to="/orders"><button class="btn btn-ghost btn-block">我的订单（买到的 / 卖出的）</button></RouterLink>
+            <RouterLink to="/expert"><button class="btn btn-ghost btn-block">鉴号专家工作台</button></RouterLink>
+          </div>
         </div>
       </div>
 

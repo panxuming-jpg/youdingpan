@@ -562,6 +562,17 @@ const DEFAULT_SETTINGS = {
   withdraw_min: '0',            // 单笔最低提现金额
   withdraw_fee_rate: '0',       // 提现手续费率
   withdraw_free_threshold: '0', // 单笔提现 ≥ 该金额免手续费（0=不启用）
+  // ---------- 自营交易与信任体系（PRD v2.0） ----------
+  self_commission_rate: '0.06',   // 自营交易佣金费率（结算时从货款扣除，PRD 3.3 建议 5-8%）
+  compensation_fee: '100',        // 找回包赔服务费（元/单，买家承担）
+  appraisal_fee: '50',            // 鉴号专家服务费（元/次，买家承担）
+  self_pay_timeout_min: '30',     // 自营订单待支付超时分钟数
+  self_auto_confirm_days: '7',    // 交接完成后自动确认收货天数
+  seller_sign_hours: '24',        // 卖家包赔协议签署时限（小时）
+  compensation_days: '180',       // 包赔保障期（天，自确认收货起算）
+  comp_pool_accrual: '0.3',       // 赔付资金池计提比例（包赔费 × 比例入池）
+  expert_share: '0.7',            // 鉴号专家分成比例
+  trial_appraise_count: '2',      // 专家试鉴定单数（完成后转正）
 };
 const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)');
 for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insSetting.run(k, v);
@@ -595,4 +606,208 @@ export function extendMembership(userId, days) {
 export function fundLog({ userId = null, biz, amount, direction, refNo = '', channel = '', remark = '' }) {
   db.prepare('INSERT INTO fund_logs (user_id, biz, amount, direction, ref_no, channel, remark, created_at) VALUES (?,?,?,?,?,?,?,?)')
     .run(userId, biz, amount, direction, refNo, channel, remark, Date.now());
+}
+
+// ============================================================
+// 自营交易与信任体系（PRD v2.0）：表结构
+// ============================================================
+
+// 用户扩展：实名认证 + 卖家资质
+try { db.exec('ALTER TABLE users ADD COLUMN real_name TEXT DEFAULT ""'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE users ADD COLUMN id_card TEXT DEFAULT ""'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE users ADD COLUMN face_verified INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+try { db.exec("ALTER TABLE users ADD COLUMN seller_status TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ } // ''|pending|approved|rejected
+try { db.exec('ALTER TABLE users ADD COLUMN seller_reject_reason TEXT DEFAULT ""'); } catch (e) { /* 列已存在 */ }
+try { db.exec('ALTER TABLE users ADD COLUMN seller_ban_until INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ } // 24h 内驳回≥3 暂停发布 72h
+
+db.exec(`
+-- 账号归属凭证（FR-A1）：注册时间页/首次充值账单/实名认证页/常用登录设备截图
+CREATE TABLE IF NOT EXISTS seller_proofs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  game_id INTEGER NOT NULL,
+  type TEXT NOT NULL,               -- register_page | first_bill | realname_page | device_shot
+  images TEXT DEFAULT '[]',
+  status TEXT DEFAULT 'pending',    -- pending | approved | rejected
+  reject_reason TEXT DEFAULT '',
+  created_at INTEGER,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_proof_user ON seller_proofs(user_id, status);
+
+-- 自营账号商品 Listing（FR-A2/A3/A4）
+CREATE TABLE IF NOT EXISTS listings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_id INTEGER NOT NULL,
+  game_id INTEGER NOT NULL,
+  server_name TEXT DEFAULT '',
+  channel TEXT DEFAULT '',
+  account_id TEXT DEFAULT '',       -- 账号标识，列表/详情一律脱敏
+  assets_json TEXT DEFAULT '{}',    -- 结构化资产（段位/等级/皮肤数/英雄数/关键资产清单）
+  raw_images_json TEXT DEFAULT '[]',-- 卖家原始截图 3-15 张（证据留存）
+  gen_images_json TEXT DEFAULT '[]',-- 一键生成标准化展示图（4 张）
+  price REAL NOT NULL,
+  support_compensation INTEGER DEFAULT 1,
+  description TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending',    -- pending | on | rejected | locked | sold | offline | review(复核)
+  reject_reason TEXT DEFAULT '',
+  verified_until INTEGER DEFAULT 0, -- 「已鉴·相符」标识有效期
+  listed_at INTEGER,
+  created_at INTEGER,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_listing_status ON listings(status, listed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listing_seller ON listings(seller_id);
+CREATE INDEX IF NOT EXISTS idx_listing_game ON listings(game_id, status);
+
+-- 估值记录（FR-B）：保留历史，展示取最新
+CREATE TABLE IF NOT EXISTS valuations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  listing_id INTEGER NOT NULL,
+  low REAL, high REAL, mid REAL,
+  score INTEGER,                    -- 性价比分 min(100, round(mid/price*70))
+  confidence TEXT DEFAULT 'low',    -- high | mid | low
+  basis_json TEXT DEFAULT '[]',     -- 依据因子 3-5 项
+  note TEXT DEFAULT '',
+  sample_count INTEGER DEFAULT 0,
+  source TEXT DEFAULT 'rule',       -- llm | rule
+  valued_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_val_listing ON valuations(listing_id, valued_at DESC);
+
+-- 自营订单（FR-A5/A6/A7）
+CREATE TABLE IF NOT EXISTS self_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_no TEXT UNIQUE NOT NULL,
+  listing_id INTEGER NOT NULL,
+  buyer_id INTEGER NOT NULL,
+  seller_id INTEGER NOT NULL,
+  game_id INTEGER,
+  price REAL NOT NULL,              -- 商品价款
+  compensation_fee REAL DEFAULT 0,  -- 包赔服务费（独立记账）
+  appraisal_fee REAL DEFAULT 0,     -- 鉴号服务费（独立记账）
+  total REAL NOT NULL,              -- 实付合计
+  status TEXT DEFAULT 'pending_payment', -- pending_payment|paid|handover|await_confirm|completed|cancelled|refunding|refunded|seller_appealed|compensated_closed
+  pay_order_no TEXT DEFAULT '',
+  handover_step INTEGER DEFAULT 0,  -- 交接六步进度 0-6
+  valuation_snapshot_json TEXT DEFAULT '', -- 下单时点估值快照（固化）
+  refund_reason TEXT DEFAULT '',
+  refund_requested_at INTEGER,
+  buyer_real_name TEXT DEFAULT '',
+  seller_real_name TEXT DEFAULT '',
+  created_at INTEGER, paid_at INTEGER, completed_at INTEGER,
+  auto_confirm_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_so_buyer ON self_orders(buyer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_so_seller ON self_orders(seller_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_so_status ON self_orders(status, created_at);
+
+-- 包赔协议（FR-D1）
+CREATE TABLE IF NOT EXISTS compensation_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL UNIQUE,
+  buyer_signed_at INTEGER,
+  seller_signed_at INTEGER,
+  sign_deadline INTEGER,            -- 卖家签署截止
+  status TEXT DEFAULT 'pending_seller', -- pending_seller | active | expired | void
+  terms_json TEXT DEFAULT '',
+  created_at INTEGER
+);
+
+-- 理赔单（FR-D3/D4）
+CREATE TABLE IF NOT EXISTS claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  buyer_id INTEGER NOT NULL,
+  evidence_json TEXT DEFAULT '[]',
+  timeline_text TEXT DEFAULT '',
+  status TEXT DEFAULT 'submitted',  -- submitted | reviewing | approved | rejected
+  ai_advice TEXT DEFAULT '',        -- AI 收证初核建议
+  decision TEXT DEFAULT '',
+  payout_amount REAL DEFAULT 0,
+  appeal_of INTEGER,                -- 申诉复用原单：指向被驳回的单
+  created_at INTEGER, decided_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_claim_status ON claims(status, created_at DESC);
+`);
+try { db.exec('ALTER TABLE claims ADD COLUMN recovered_at INTEGER'); } catch (e) { /* 列已存在 */ }
+db.exec(`
+
+-- 鉴号单（FR-C2/C3/C4）
+CREATE TABLE IF NOT EXISTS appraisals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  listing_id INTEGER NOT NULL,
+  order_id INTEGER,                 -- 下单前申请时为空
+  buyer_id INTEGER NOT NULL,
+  expert_id INTEGER,
+  game_id INTEGER,
+  fee REAL DEFAULT 0,
+  status TEXT DEFAULT 'pending_payment', -- pending_payment|pending_accept|in_progress|reported|closed|reassigned
+  conclusion TEXT DEFAULT '',       -- match | partial | mismatch | incapable
+  report_json TEXT DEFAULT '',
+  created_at INTEGER, paid_at INTEGER, accepted_at INTEGER, reported_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_appr_status ON appraisals(status, created_at);
+
+-- 鉴号专家（FR-C1）
+CREATE TABLE IF NOT EXISTS experts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  game_id INTEGER NOT NULL,
+  qual_images TEXT DEFAULT '[]',
+  status TEXT DEFAULT 'applying',   -- applying | trial | approved | suspended
+  trial_done INTEGER DEFAULT 0,
+  created_at INTEGER, reviewed_at INTEGER,
+  UNIQUE(user_id, game_id)
+);
+
+-- 订单三方会话消息（FR-E1）
+CREATE TABLE IF NOT EXISTS order_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  sender TEXT NOT NULL,             -- buyer | seller | ai | system
+  content TEXT NOT NULL,
+  meta_json TEXT DEFAULT '',        -- {event, level} 播报事件/风险等级
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_om_order ON order_messages(order_id, created_at);
+
+-- 证据链：只可追加不可编辑（FR-E2）
+CREATE TABLE IF NOT EXISTS evidence_chain (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  type TEXT NOT NULL,               -- pay | material | proof | message | report | sign | claim | risk | settle
+  actor TEXT DEFAULT '',
+  detail_json TEXT DEFAULT '',
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ec_order ON evidence_chain(order_id, created_at);
+
+-- 风险事件（FR-E3）
+CREATE TABLE IF NOT EXISTS risk_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER,
+  user_id INTEGER,
+  type TEXT NOT NULL,               -- offsite | phishing | credential_ask | silence
+  detail TEXT DEFAULT '',
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_re_order ON risk_events(order_id, created_at DESC);
+
+-- 卖家违约记录（FR-D1 逾期不签 / FR-D4 追偿）
+CREATE TABLE IF NOT EXISTS violations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  order_id INTEGER,
+  type TEXT NOT NULL,               -- sign_overdue | claim_recovery | appraisal_mismatch
+  detail TEXT DEFAULT '',
+  created_at INTEGER
+);
+`);
+
+// 赔付资金池余额（来源：包赔费计提 fund_logs biz=comp_accrual；出账：biz=comp_payout）
+export function compPoolBalance() {
+  const inSum = db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM fund_logs WHERE biz='comp_accrual' AND direction='in'").get().s;
+  const outSum = db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM fund_logs WHERE biz='comp_payout' AND direction='out'").get().s;
+  return Math.round((inSum - outSum) * 100) / 100;
 }

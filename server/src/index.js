@@ -7,7 +7,13 @@ import { verifyToken } from './util.js';
 import { addClient } from './engine/sse.js';
 import { startEngine } from './engine/engine.js';
 import { startAuctionEngine } from './engine/auction.js';
+import { startSelfTradeEngine } from './engine/selftrade.js';
 import authRoutes from './routes/auth.js';
+import sellerRoutes from './routes/seller.js';
+import orderRoutes from './routes/orders.js';
+import appraiseRoutes from './routes/appraise.js';
+import compRoutes from './routes/compensation.js';
+import aichatRoutes from './routes/aichat.js';
 import gameRoutes from './routes/games.js';
 import goodsRoutes from './routes/goods.js';
 import taskRoutes from './routes/tasks.js';
@@ -34,6 +40,11 @@ app.use('/api', payRoutes);
 app.use('/api', memberRoutes);
 app.use('/api', walletRoutes);
 app.use('/api', uploadRoutes);
+app.use('/api', sellerRoutes);
+app.use('/api', orderRoutes);
+app.use('/api', appraiseRoutes);
+app.use('/api', compRoutes);
+app.use('/api', aichatRoutes);
 
 // 上传图片静态资源映射（server/uploads → /uploads/**）
 app.use('/uploads', express.static(uploadDir));
@@ -72,4 +83,5 @@ app.listen(PORT, () => {
   console.log(`[server] 游盯盘服务已启动: http://localhost:${PORT}`);
   startEngine();
   startAuctionEngine();
+  startSelfTradeEngine();
 });

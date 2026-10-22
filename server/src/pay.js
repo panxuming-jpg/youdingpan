@@ -12,20 +12,22 @@
 import crypto from 'node:crypto';
 import { db, getSettingNum, extendMembership, fundLog } from './db.js';
 import { notify } from './engine/auction.js';
+import { broadcast, advanceStep, addEvidence } from './engine/ai_service.js';
+import { latestValuation } from './engine/valuation.js';
 
 const PAY_TIMEOUT_MS = 15 * 60 * 1000; // 支付单 15 分钟超时
 
 export function genOrderNo(scene) {
-  const prefix = scene === 'member' ? 'M' : scene === 'auction' ? 'A' : 'P';
+  const prefix = scene === 'member' ? 'M' : scene === 'auction' ? 'A' : scene === 'self' ? 'S' : scene === 'appraisal' ? 'J' : 'P';
   return `${prefix}${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
-export function createPayOrder({ userId, scene, refId = null, subject, amount }) {
+export function createPayOrder({ userId, scene, refId = null, subject, amount, timeoutMs = PAY_TIMEOUT_MS }) {
   const orderNo = genOrderNo(scene);
   const now = Date.now();
   db.prepare(`INSERT INTO pay_orders (order_no, user_id, scene, ref_id, subject, amount, status, expire_at, created_at)
     VALUES (?,?,?,?,?,?,'pending',?,?)`)
-    .run(orderNo, userId, scene, refId, subject, amount, now + PAY_TIMEOUT_MS, now);
+    .run(orderNo, userId, scene, refId, subject, amount, now + timeoutMs, now);
   return getPayOrder(orderNo);
 }
 
@@ -72,8 +74,85 @@ export function markPaid(orderNo, channel) {
       notify(order.buyer_id, 'auction', '支付成功', `「${a?.title}」已支付成功，货款由平台担保，等待卖家发货。`);
       notify(order.seller_id, 'auction', '买家已付款', `「${a?.title}」买家已完成付款，请及时发货并填写物流单号。`);
     }
+  } else if (o.scene === 'self') {
+    fulfillSelfOrder(o, now, channel);
+  } else if (o.scene === 'appraisal') {
+    fulfillAppraisalPaid(o, now);
   }
   return { ok: true, data: shapePayOrder(getPayOrder(orderNo)) };
+}
+
+// ---------- 自营订单支付履约（FR-A5/A6 + FR-D1 + FR-C2） ----------
+function fulfillSelfOrder(payOrder, now, channel) {
+  const o = db.prepare('SELECT * FROM self_orders WHERE id=?').get(payOrder.ref_id);
+  if (!o || o.status !== 'pending_payment') return;
+  db.prepare(`UPDATE self_orders SET status='handover', paid_at=?, pay_order_no=?, handover_step=1 WHERE id=?`)
+    .run(now, payOrder.order_no, o.id);
+  fundLog({ userId: payOrder.user_id, biz: 'self_pay', amount: payOrder.amount, direction: 'out', refNo: payOrder.order_no, channel, remark: `自营订单 ${o.order_no} 担保支付（平台托管）` });
+
+  // 估值快照固化（FR-A7：下单时点，不可变）
+  const snap = latestValuation(o.listing_id);
+  if (snap) db.prepare('UPDATE self_orders SET valuation_snapshot_json=? WHERE id=?').run(JSON.stringify(snap), o.id);
+
+  // 包赔协议：买家支付即视为买方签署；卖家 24h 内电子签，逾期引擎自动退款关闭
+  if (o.compensation_fee > 0) {
+    const signHours = getSettingNum('seller_sign_hours', 24);
+    const terms = buildCompensationTerms(o);
+    db.prepare(`INSERT INTO compensation_plans (order_id, buyer_signed_at, sign_deadline, status, terms_json, created_at)
+      VALUES (?,?,?,'pending_seller',?,?)`).run(o.id, now, now + signHours * 3_600_000, JSON.stringify(terms), now);
+  }
+  // 随单加购鉴号 → 进入专家池待接单
+  if (o.appraisal_fee > 0) {
+    db.prepare(`INSERT INTO appraisals (listing_id, order_id, buyer_id, game_id, fee, status, created_at, paid_at)
+      VALUES (?,?,?,?,?, 'pending_accept', ?, ?)`).run(o.listing_id, o.id, o.buyer_id, o.game_id, o.appraisal_fee, now, now);
+  }
+  addEvidence(o.id, 'pay', 'buyer', { order_no: o.order_no, amount: o.total, channel });
+  broadcast(o.id, 'paid', `买家已完成担保支付 ¥${o.total.toFixed(2)}，货款由平台托管。${o.compensation_fee > 0 ? `找回包赔协议已生成，请卖家在 ${getSettingNum('seller_sign_hours', 24)} 小时内完成电子签署。` : ''}`);
+  advanceStep(o.id, 1); // 自动开启标准交接六步
+  notify(o.buyer_id, 'system', '支付成功', `自营订单 ${o.order_no} 支付成功，AI 客服已开启交接流程。`);
+  notify(o.seller_id, 'system', '买家已付款', `订单 ${o.order_no} 买家已付款（平台托管）。${o.compensation_fee > 0 ? `请在 ${getSettingNum('seller_sign_hours', 24)} 小时内签署包赔协议并提交账号资料。` : '请尽快在订单会话内提交账号资料。'}`);
+}
+
+export function buildCompensationTerms(o) {
+  const l = db.prepare('SELECT * FROM listings WHERE id=?').get(o.listing_id);
+  const b = db.prepare('SELECT real_name, id_card FROM users WHERE id=?').get(o.buyer_id);
+  const s = db.prepare('SELECT real_name, id_card FROM users WHERE id=?').get(o.seller_id);
+  return {
+    title: '游盯盘找回包赔服务协议（平台先行赔付）',
+    buyer_name: b?.real_name || '', buyer_id_mask: maskId(b?.id_card),
+    seller_name: s?.real_name || '', seller_id_mask: maskId(s?.id_card),
+    account_mask: l ? maskAccount(l.account_id) : '',
+    game_price: o.price, compensation_fee: o.compensation_fee,
+    guarantee_days: getSettingNum('compensation_days', 180),
+    payout_cap: o.price,
+    terms: [
+      '保障对象：已完成订单的账号，被卖家或卖家关联第三方通过申诉、原始凭证、实名找回等手段夺回。',
+      `保障期：确认收货起 ${getSettingNum('compensation_days', 180)} 天；赔付上限：订单商品实付价款 ¥${o.price.toFixed(2)}（不含鉴号费与包赔服务费）。`,
+      '除外责任：买家主动外借/转卖/泄露凭证；站外私下交易或绕过平台改绑；买家使用外挂等违规致封号（非找回）；保障期外。认定以订单证据链为准。',
+      '理赔流程：买家提交证据 → AI 收证初核 → 运营裁决（SLA 72h）→ 通过后从平台赔付资金池向买家原路赔付，同步冻结卖家钱包等额并向卖家追偿（15 日）。',
+      '【找回即违约】卖家发起或协助找回已售账号即构成根本违约：平台有权冻结卖家钱包与全部在售商品、计入永久违约标记、限制提现，并支持买家与平台依法追偿；涉嫌犯罪的移送司法机关。',
+    ],
+    forced_notice: '本协议为平台服务承诺，非保险产品。签署人须勾选确认「找回即违约」条款并完成电子签。',
+  };
+}
+
+function maskId(id) {
+  if (!id || id.length < 8) return id || '';
+  return id.slice(0, 4) + '**********' + id.slice(-4);
+}
+export function maskAccount(acc) {
+  if (!acc) return '';
+  if (acc.length <= 3) return acc[0] + '**';
+  return acc[0] + '*'.repeat(Math.min(acc.length - 2, 6)) + acc[acc.length - 1];
+}
+
+function fulfillAppraisalPaid(payOrder, now) {
+  const a = db.prepare('SELECT * FROM appraisals WHERE id=?').get(payOrder.ref_id);
+  if (!a || a.status !== 'pending_payment') return;
+  db.prepare(`UPDATE appraisals SET status='pending_accept', paid_at=? WHERE id=?`).run(now, a.id);
+  fundLog({ userId: payOrder.user_id, biz: 'appraisal_pay', amount: payOrder.amount, direction: 'out', refNo: payOrder.order_no, remark: `鉴号服务 #${a.id} 支付` });
+  if (a.order_id) broadcast(a.order_id, 'appraisal_paid', `鉴号服务已支付（¥${a.fee.toFixed(2)}），正在等待鉴号专家接单，专家接单后 24 小时内出具报告。`);
+  notify(a.buyer_id, 'system', '鉴号单已受理', `鉴号单 #${a.id} 支付成功，已进入专家池等待接单。`);
 }
 
 // 关闭/超时支付单（引擎扫描超时拍卖订单时同步调用）

@@ -14,11 +14,15 @@ watch(() => store.token, t => (t ? connectSSE() : closeSSE()), { immediate: true
 const navs = computed(() => {
   const list = [
     { path: '/market', label: '商品市场' },
+    { path: '/self', label: '自营交易' },
     { path: '/auctions', label: '游拍卖' },
     { path: '/tasks', label: '监控任务', auth: true },
     { path: '/messages', label: '消息中心', auth: true, badge: () => store.unread },
   ];
-  if (store.user?.is_admin) list.push({ path: '/admin', label: '管理后台' });
+  if (store.user?.is_admin) {
+    list.push({ path: '/admin', label: '管理后台' });
+    list.push({ path: '/admin/self', label: '自营管理' });
+  }
   return list.filter(n => !n.auth || store.token);
 });
 
@@ -71,7 +75,7 @@ const showContact = ref(false);
   <RouterView />
 
   <footer class="site-footer">
-    账号交易存在风险，本工具仅信息展示，不参与交易、不提供担保。商品数据来自各平台公开页面，请以原平台为准并遵守其用户协议。
+    自营商品由平台审核后上架，交易全程平台担保：货款资金托管、交接六步留痕、找回包赔先行赔付。行情比价数据来自各平台公开页面，请以原平台为准并遵守其用户协议。账号交易须遵守各游戏用户协议，禁止外挂账号与未成年人交易。
   </footer>
 
   <div class="toast-wrap">

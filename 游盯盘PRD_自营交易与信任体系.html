@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游盯盘 · 自营交易与信任体系 PRD v2.0</title>
+<style>
+  :root {
+    --accent: #ff6a00; --accent2: #ff2c3c; --ink: #1f2233; --sub: #5a5f73;
+    --line: #e8e9f0; --bg: #f7f8fb; --card: #ffffff; --warn-bg: #fff7ed; --warn-bd: #fdba74;
+    --ok: #16a34a; --tbd: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "PingFang SC","Microsoft YaHei","Segoe UI",sans-serif; color: var(--ink); background: var(--bg); line-height: 1.75; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 80px; }
+  header.hero { background: linear-gradient(135deg, #ff6a00 0%, #ff2c3c 100%); color: #fff; padding: 44px 24px 36px; }
+  header.hero .wrap { padding-bottom: 0; }
+  h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: 1px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; opacity: .95; }
+  .meta b { font-weight: 600; }
+  nav.toc { position: sticky; top: 0; z-index: 9; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
+  nav.toc .wrap { padding: 0 24px; display: flex; gap: 4px; overflow-x: auto; }
+  nav.toc a { flex: none; padding: 12px 14px; font-size: 13.5px; color: var(--sub); text-decoration: none; border-bottom: 2px solid transparent; }
+  nav.toc a:hover { color: var(--accent); border-color: var(--accent); }
+  h2 { font-size: 22px; margin: 52px 0 6px; padding-left: 12px; border-left: 5px solid var(--accent); }
+  h3 { font-size: 17px; margin: 30px 0 8px; color: var(--ink); }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--sub); font-weight: 600; }
+  p, li { font-size: 14.5px; }
+  .lede { color: var(--sub); margin: 0 0 18px; font-size: 14.5px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; background: var(--card); font-size: 13.8px; }
+  th { background: #f1f2f8; text-align: left; font-weight: 600; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafbfe; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 999px; vertical-align: 1px; margin-right: 6px; font-weight: 600; }
+  .p0 { background: #fee2e2; color: #b91c1c; } .p1 { background: #e0e7ff; color: #3730a3; }
+  .ok { background: #dcfce7; color: #15803d; }
+  .tbd { color: var(--tbd); background: var(--warn-bg); border: 1px dashed var(--warn-bd); border-radius: 4px; padding: 0 6px; font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 16px 0 22px; }
+  .fr { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 18px 22px; margin: 18px 0; }
+  .fr h3 { margin-top: 0; }
+  .frid { font-family: Consolas,monospace; font-size: 12px; color: #fff; background: var(--accent); border-radius: 5px; padding: 2px 8px; margin-right: 8px; }
+  ul { margin: 6px 0 14px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0 20px; }
+  .flow .st { background: #fff; border: 1.5px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+  .flow .st.gray { border-color: #c3c7d6; color: var(--sub); font-weight: 400; }
+  .flow .st.red { border-color: var(--accent2); color: var(--accent2); }
+  .flow .ar { color: #9aa0b4; font-size: 14px; }
+  .note { background: var(--warn-bg); border-left: 4px solid var(--warn-bd); border-radius: 0 8px 8px 0; padding: 10px 16px; font-size: 13.5px; color: #7c4a03; margin: 14px 0 20px; }
+  /* demo */
+  .demo { border: 1.5px dashed #c9cddd; border-radius: 12px; background: #fcfcff; padding: 16px; margin: 16px 0 22px; }
+  .demo .dt { font-size: 12px; color: var(--sub); letter-spacing: 1px; margin-bottom: 10px; font-weight: 600; }
+  .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .demo-grid { grid-template-columns: 1fr; } }
+  .prod { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px; font-size: 13px; }
+  .price { color: var(--accent2); font-size: 22px; font-weight: 800; }
+  .score { display: inline-block; background: linear-gradient(90deg,#ff6a00,#ff2c3c); color:#fff; border-radius: 6px; padding: 1px 8px; font-weight: 700; font-size: 12px; }
+  .rowbtn { cursor: pointer; border: 1px solid var(--line); background:#fff; border-radius: 8px; padding: 5px 12px; font-size: 12.5px; }
+  .rowbtn.on { border-color: var(--accent); background: #fff3ea; color: var(--accent); font-weight: 700; }
+  .switch { position: relative; width: 40px; height: 22px; background: #d5d8e4; border-radius: 999px; cursor: pointer; transition: .2s; display: inline-block; vertical-align: -4px; }
+  .switch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 20px; }
+  .chat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; font-size:13px; }
+  .bub { max-width: 86%; padding: 8px 12px; border-radius: 10px; margin: 7px 0; clear: both; }
+  .bub.ai { background: #eef2ff; border: 1px solid #dbe3ff; float: left; }
+  .bub.buyer { background: #fff3ea; border: 1px solid #ffd9bd; float: right; }
+  .bub .who { font-size: 11px; color: var(--sub); display: block; margin-bottom: 2px; }
+  .steps { counter-reset: s; margin: 8px 0; padding: 0; list-style: none; }
+  .steps li { counter-increment: s; padding: 6px 0 6px 34px; position: relative; font-size: 13.5px; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 6px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .steps li.done::before { background: var(--ok); content: "✓"; }
+  .shot { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; font-size: 12.5px; }
+  .shot .top { background: linear-gradient(120deg,#2b2440,#4a2c3f); color:#fff; padding: 10px 12px; }
+  .shot .top .game { font-size: 11px; opacity: .8; }
+  .shot .attrs { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--line); }
+  .shot .attrs div { background: #fff; padding: 8px; text-align: center; }
+  .shot .attrs b { display: block; font-size: 15px; color: var(--accent2); }
+  .shot .foot { padding: 8px 12px; color: #9aa0b4; font-size: 11px; display: flex; justify-content: space-between; }
+  footer.doc { margin-top: 60px; color: var(--sub); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 18px; }
+  @media print { nav.toc { display: none; } .demo { break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>游盯盘 · 自营交易与信任体系 PRD</h1>
+    <div class="meta">
+      <span><b>版本</b> v2.0（草案，待评审）</span>
+      <span><b>日期</b> 2026-10-21</span>
+      <span><b>迭代主题</b> 从聚合监控工具升级为自营交易平台</span>
+      <span><b>新增模块</b> 账号直售 · 大模型估值 · 鉴号专家 · 找回包赔 · AI 客服监管</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#s1">1 背景与目标</a><a href="#s2">2 范围</a><a href="#s3">3 角色与对象模型</a>
+  <a href="#s4">4 功能需求</a><a href="#s5">5 共享规则</a><a href="#s6">6 开放问题</a>
+</div></nav>
+
+<div class="wrap">
+
+<!-- ============ 1 ============ -->
+<h2 id="s1">1 背景与目标</h2>
+<p class="lede">本章回答：为什么从「聚合监控」走向「自营交易」，以及本迭代要解决的具体问题。</p>
+
+<h3>1.1 现状（已确认事实）</h3>
+<p>游盯盘当前是多平台游戏账号交易<b>聚合监控工具</b>：聚合交易猫、盼之代售、螃蟹账号、7881、DD373、5173 共 6 个平台、11 款在售游戏的账号商品，提供统一检索比价、上新/降价监控、价格走势与收藏；合并版已具备「游拍卖」担保支付、卖家钱包提现与付费会员的<b>资金托管基础设施</b>。产品合规声明为「仅做信息聚合展示，不参与交易、不提供担保」。</p>
+
+<h3>1.2 问题</h3>
+<table>
+  <tr><th style="width:22%">观察到的问题</th><th style="width:39%">影响的用户与时机</th><th>产品回应（本迭代）</th></tr>
+  <tr><td>供给不可控：在售商品全部来自第三方平台，平台无法保证账号真实性与卖家履约</td><td>买家在下单与交接环节，最大顾虑是「买后被找回」</td><td>卖家自营上传 + 实名与归属凭证审核（FR-A）</td></tr>
+  <tr><td>定价无锚点：账号只有挂牌价，买家无法判断贵贱</td><td>买家浏览与比价决策时</td><td>大模型估值与性价比排序（FR-B）</td></tr>
+  <tr><td>信任靠承诺：高价值账号仅凭商品描述难以建立信任</td><td>买家下单前犹豫、放弃交易时</td><td>鉴号专家人工鉴定（FR-C）+ 找回包赔（FR-D）</td></tr>
+  <tr><td>交接靠私聊：改绑、验号、放款流程无标准与留痕</td><td>买卖双方交接期，纠纷高发且无证据</td><td>AI 客服全程介入监管并固化证据链（FR-E）</td></tr>
+</table>
+
+<h3>1.3 目标（可观察结果）</h3>
+<ul>
+  <li>卖家可在平台内完成「上传账号 → 生成标准化商品图 → 审核上架 → 售出提现」的完整闭环，无需依赖第三方平台发布。</li>
+  <li>买家在商品列表可按性价比排序，在详情页可见估值区间、性价比分与依据说明，并能自主选购找回包赔、申请鉴号。</li>
+  <li>每一笔自营订单从下单到确认收货全程有 AI 客服引导与节点留痕；发生账号被找回时，买家可在线提交理赔，平台按规则先行赔付并向卖家追偿。</li>
+  <li>平台从「不参与交易」转为「交易组织方与担保方」，相应合规声明、协议文本与资质要求同步更新（见 5.6）。</li>
+</ul>
+
+<!-- ============ 2 ============ -->
+<h2 id="s2">2 范围</h2>
+<p class="lede">按最小完整旅程圈定 P0；跨平台分发等依赖外部能力的项为 P1。</p>
+
+<h3>2.1 P0 主旅程</h3>
+<div class="flow">
+  <span class="st gray">卖家实名+归属凭证</span><span class="ar">→</span>
+  <span class="st">上传账号（一键生成截图）</span><span class="ar">→</span>
+  <span class="st">平台审核</span><span class="ar">→</span>
+  <span class="st">上架+估值展示</span><span class="ar">→</span>
+  <span class="st">买家按性价比选购</span><span class="ar">→</span>
+  <span class="st">下单（可选包赔/鉴号）</span><span class="ar">→</span>
+  <span class="st">担保支付</span><span class="ar">→</span>
+  <span class="st">AI客服引导交接</span><span class="ar">→</span>
+  <span class="st">确认收货→结算</span>
+</div>
+<p>入口条件：卖家已通过实名认证与账号归属凭证审核。完成证据：买家点击「确认收货」后资金划入卖家钱包、商品状态变为「已售出」、订单进入可理赔期。恢复路径：① 交接失败 → 订单退款关闭（FR-A6）；② 售后被找回 → 理赔流程（FR-D3/D4）。</p>
+
+<h3>2.2 P1 支持能力</h3>
+<ul>
+  <li><b>一键打通其他交易平台分发</b>（FR-A8）：向交易猫/7881 等已授权渠道推送卖家商品。受第三方平台开放能力制约，P1 先交付「渠道素材包一键复制」，API 直连按渠道逐个评估。</li>
+  <li><b>鉴号专家工作台</b>（FR-C3 的接单侧仅做最小后台，完整工作台 P1）。</li>
+</ul>
+
+<h3>2.3 明确不做（防止分歧）</h3>
+<ul>
+  <li>不做账号租赁、代练、陪练等非交易业务；不自建 IM App（沿用订单内嵌会话）；不做站外收款通道（所有资金走既有担保支付与钱包）。</li>
+  <li>估值结果不作为成交价承诺，也不用于自动定价（仅展示与排序）。</li>
+</ul>
+
+<!-- ============ 3 ============ -->
+<h2 id="s3">3 角色与对象模型</h2>
+
+<h3>3.1 角色与权限矩阵</h3>
+<table>
+  <tr><th>能力</th><th>游客</th><th>买家（已实名）</th><th>卖家（已实名+凭证审核）</th><th>鉴号专家</th><th>平台运营</th><th>AI 客服（系统）</th></tr>
+  <tr><td>浏览/搜索/按性价比排序</td><td>✓</td><td>✓</td><td>✓</td><td>—</td><td>✓</td><td>—</td></tr>
+  <tr><td>上传账号商品</td><td>✗</td><td>✗（需先通过卖家资质）</td><td>✓</td><td>✗</td><td>✓（代录）</td><td>—</td></tr>
+  <tr><td>下单/支付/确认收货</td><td>✗</td><td>✓</td><td>✗（不可购买自己的商品）</td><td>✗</td><td>✗</td><td>引导，不代操作</td></tr>
+  <tr><td>申请鉴号</td><td>✗</td><td>✓（下单前或交接中）</td><td>✗</td><td>接单执行</td><td>✓</td><td>提示入口</td></tr>
+  <tr><td>签署包赔协议</td><td>✗</td><td>✓</td><td>✓（强制签署方）</td><td>✗</td><td>✓</td><td>核验签署状态</td></tr>
+  <tr><td>发起理赔</td><td>✗</td><td>✓</td><td>✗</td><td>✗</td><td>审核</td><td>收证、初核</td></tr>
+  <tr><td>审核商品/理赔/封禁</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>建议，不裁决</td></tr>
+  <tr><td>查看订单交接证据</td><td>✗</td><td>本订单</td><td>本订单</td><td>受托订单的报告相关部分</td><td>全部</td><td>本订单</td></tr>
+</table>
+<p>同一账号可同时具备买家与卖家身份（须分别满足各自资质）；鉴号专家不得鉴定自己或其关联账号上架的商品 <span class="tbd">关联识别口径 TBD</span>。</p>
+
+<h3>3.2 核心对象与状态机</h3>
+<table>
+  <tr><th style="width:16%">对象</th><th style="width:44%">状态与迁移</th><th>禁止操作</th></tr>
+  <tr><td>账号商品 Listing</td><td>草稿 → 待审核 →（通过）在售 → 锁定（有进行中订单）→ 已售出；待审核 →（驳回）已驳回 → 可修改重提；在售 → 卖家下架</td><td>「锁定」期间不可改价/下架；驳回必须附原因</td></tr>
+  <tr><td>订单 Order</td><td>待支付 → 已支付(托管) → 交接中 → 待收货确认 → 已完成；待支付 →(超时30min<span class="tbd">[假设]</span>)已取消；交接中/待收货确认 →(任一方可申请)退款处理中 → 已退款关闭；已完成 →(理赔成立)已赔付关闭</td><td>已支付后不可由卖家单方取消；「已完成」前买家不点确认则 N 天后自动确认 <span class="tbd">N 取值 TBD，建议 7 天</span></td></tr>
+  <tr><td>鉴号单 Appraisal</td><td>待支付 → 待接单 → 鉴定中 → 已出报告（结论：相符 / 部分不符 / 不符 / 无法鉴定）→ 已关闭</td><td>已出报告后不可取消；「不符」触发订单取消通道（FR-C4）</td></tr>
+  <tr><td>包赔协议 CompensationPlan</td><td>随订单生成 → 双方已签署（生效，进入理赔期）→ 期满终止；期内 → 理赔中 → 已赔付 / 已拒赔</td><td>卖家拒签则订单不进入支付（FR-D1）</td></tr>
+  <tr><td>理赔单 Claim</td><td>已提交 → 审核中（AI 收证 + 运营裁决）→ 通过（先行赔付中 → 已赔付 → 追偿中）/ 驳回（可申诉一次）</td><td>同一订单理赔次数 ≤1（申诉复用原单）</td></tr>
+</table>
+
+<h3>3.3 费用项总览</h3>
+<table>
+  <tr><th>费用</th><th>承担方</th><th>金额</th><th>状态</th></tr>
+  <tr><td>找回包赔服务费</td><td>买家（随订单支付）</td><td><b>100 元/单</b></td><td><span class="tag ok">已确认</span></td></tr>
+  <tr><td>鉴号专家服务费</td><td>买家</td><td><span class="tbd">建议按游戏与客单价阶梯 30–80 元/次，TBD</span></td><td>开放问题 Q1</td></tr>
+  <tr><td>鉴号专家分成</td><td>平台 → 专家</td><td><span class="tbd">建议 70%，TBD</span></td><td>开放问题 Q1</td></tr>
+  <tr><td>自营交易技术服务费（佣金）</td><td>卖家（结算时扣除）</td><td><span class="tbd">建议 5–8%，TBD</span></td><td>开放问题 Q2</td></tr>
+  <tr><td>跨平台分发</td><td>卖家</td><td><span class="tbd">建议限时免费，TBD</span></td><td>开放问题 Q5</td></tr>
+</table>
+
+<!-- ============ 4 ============ -->
+<h2 id="s4">4 功能需求</h2>
+
+<h3>4.1 模块 A：卖家上传与买家购买</h3>
+
+<div class="fr">
+  <h3><span class="frid">FR-A1</span>实名与账号归属凭证 <span class="tag p0">P0</span></h3>
+  <p><b>目的</b>：把「卖家是谁、账号是不是他的」前置固化，是包赔与追偿的证据基础。</p>
+  <p><b>触发</b>：注册用户首次点击「我要卖号」时强制进入资质流程。</p>
+  <table>
+    <tr><th>材料</th><th>要求</th><th>校验</th></tr>
+    <tr><td>实名认证</td><td>姓名 + 身份证号 + 人脸核验 <span class="tbd">核验服务商 TBD</span></td><td>与提现银行卡持卡人一致，不一致禁止上架</td></tr>
+    <tr><td>账号归属凭证（至少 1 项）</td><td>账号注册时间页 / 首次充值账单 / 实名认证页 / 常用登录设备截图，须含可识别的账号标识</td><td>人工审核为主（SLA 24h <span class="tbd">[假设]</span>），凭证与商品填报的区服/等级冲突时驳回</td></tr>
+  </table>
+  <p><b>结果</b>：通过后获得卖家资质（按游戏维度生效 <span class="tbd">[假设] 全局生效还是按游戏生效 TBD</span>）；驳回可见原因并无限次重提。<b>例外</b>：凭证审核通过但后续被证实非本人账号 → 冻结卖家钱包与全部在售商品，进入运营处理（见 5.5 审计）。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A2</span>商品发布表单 <span class="tag p0">P0</span></h3>
+  <p><b>字段</b>（必填项缺失不可提交）：</p>
+  <table>
+    <tr><th>字段</th><th>类型/约束</th><th>说明</th></tr>
+    <tr><td>游戏</td><td>单选，11 款在售游戏</td><td>决定结构化资产字段模板</td></tr>
+    <tr><td>区服 / 平台渠道</td><td>游戏模板枚举（如微信区/QQ区；官服/B服）</td><td>与估值输入联动</td></tr>
+    <tr><td>账号标识</td><td>文本，仅卖家与成交后买家可见</td><td>列表与详情页一律脱敏展示</td></tr>
+    <tr><td>结构化资产</td><td>按游戏模板：段位/等级、皮肤数、英雄/角色数、关键资产清单（可多选典藏/限定项）</td><td>估值（FR-B）与截图生成（FR-A3）的数据源</td></tr>
+    <tr><td>原始截图</td><td>3–15 张（主图、资产页、段位页等）</td><td>用于生成展示图，原图留存作证据</td></tr>
+    <tr><td>售价 / 是否支持包赔</td><td>≥1 元；支持包赔为默认勾选 <span class="tbd">[假设]</span></td><td>不支持包赔的商品在列表带风险提示标识</td></tr>
+    <tr><td>描述</td><td>≤500 字</td><td>敏感词与站外联系方式检测（见 5.4）</td></tr>
+  </table>
+  <p><b>结果</b>：提交后 Listing 进入「待审核」；审核通过自动上架并触发首次估值。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A3</span>一键生成账号截图（标准化展示图） <span class="tag p0">P0</span></h3>
+  <p><b>目的</b>：把卖家随手上传的原始截图合成为统一模板的商品展示图，提升列表一致性与防盗图能力。</p>
+  <p><b>触发</b>：发布表单素材齐备后点击「一键生成」；生成不替代卖家上传原图，原图仍留存。</p>
+  <p><b>处理规则</b>：以 FR-A2 的结构化资产字段 + 卖家原始截图为输入，按游戏模板输出成套展示图（默认 4 张：主图卡、资产总览、关键资产、段位/等级页）。每张合成图强制包含：① 属性条（区服/渠道 + 模板关键数值）；② 平台水印与编号「游盯盘 NO.{listingId}」；③ 防盗提示文案「交易请认准游盯盘担保流程」。<b>一致性约束</b>：展示图数值取自结构化字段，与商品详情同源，禁止手工改图字段；卖家可对单张图选择「仅用原图」。</p>
+  <p><b>结果</b>：生成图进入商品图组并随 Listing 送审；原图与生成图均保留至订单证据链归档（见 5.5）。</p>
+  <div class="demo"><div class="dt">交互示意 · 原始截图 → 一键生成展示图</div>
+    <div class="demo-grid">
+      <div class="shot"><div style="padding:10px 12px;color:var(--sub)">📱 卖家原始截图（杂乱、无标识、可被盗用）</div><div style="height:120px;background:#f1f2f8;display:flex;align-items:center;justify-content:center;color:#9aa0b4">游戏内资产截图</div></div>
+      <div class="shot">
+        <div class="top"><div class="game">王者荣耀 · 微信区 · 安卓</div><div style="font-weight:700;font-size:15px">V10 贵族 · 全典藏 147 皮肤</div></div>
+        <div class="attrs"><div><b>147</b>皮肤</div><div><b>105</b>英雄</div><div><b>V10</b>贵族</div></div>
+        <div class="foot"><span>游盯盘 NO.20387 · 已验归属</span><span>交易请认准游盯盘担保流程</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A4</span>审核与上架 <span class="tag p0">P0</span></h3>
+  <p><b>规则</b>：运营后台按「凭证一致性 → 资产字段与截图相符 → 描述合规」三级清单审核；通过后 Listing=在售，触发 FR-B 首次估值；驳回必须从预设原因库选择并附文字说明，卖家可修改重提。<b>例外</b>：同一卖家 24h 内被驳回 ≥3 次 → 暂停其发布入口 72h <span class="tbd">[假设]</span>，防恶意刷审。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A5</span>买家下单与担保支付 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：商品详情页点击「立即购买」。买家须已实名（未实名引导补齐）。</p>
+  <p><b>下单确认页</b>依次呈现三项可选/必选内容，实时计算应付合计：</p>
+  <ul>
+    <li>商品价款；② 找回包赔服务费 +100 元（可选，但商品标「支持包赔」且卖家已承诺时展示强提示；勾选后订单生效前卖家须签协议，FR-D1）；③ 鉴号服务（可选，FR-C2，可下单前申请也可在交接中加购）。</li>
+  </ul>
+  <p><b>规则</b>：支付走既有担保支付通道，资金进入平台托管；同一 Listing 同时只允许 1 个进行中订单（下单即 Listing=锁定）；待支付订单 30 分钟<span class="tbd">[假设]</span>未支付自动取消并释放锁定。禁止购买自己上架的商品（同实名主体判定）。</p>
+  <div class="demo"><div class="dt">交互示意 · 下单确认页（勾选包赔实时变价）</div>
+    <div class="prod" id="demoOrder">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span>典藏 147 皮肤 · V10 贵族</span><span class="score">性价比 92</span></div>
+      <div style="margin:8px 0"><span class="price">¥3,600</span> <span style="color:var(--sub)">商品价款</span></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)">
+        <span>找回包赔服务 <span style="color:var(--sub);font-size:12px">（被找回平台先行赔付，详见协议）</span></span>
+        <span><span class="switch on" id="swIns"></span> <b>+¥100</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)">
+        <span>鉴号专家鉴定 <span style="color:var(--sub);font-size:12px">（24h 内出具报告）</span></span>
+        <span><span class="switch" id="swAp"></span> <b>+¥<span id="apFee">50</span></b></span>
+      </div>
+      <div style="border-top:2px solid var(--accent);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between">
+        <span>应付合计</span><span class="price" id="total">¥3,750</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A6</span>账号交接流程 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：订单进入「已支付(托管)」后由 AI 客服（FR-E）自动开启标准交接六步；买卖双方也可在任一步申请退款关闭。</p>
+  <ol class="steps">
+    <li class="done">协议与费用确认（含包赔协议双方签署状态核验）</li>
+    <li class="done">卖家在订单会话内提交账号资料（密码/绑定信息），系统时间戳留痕</li>
+    <li>买家改密、换绑手机/邮箱，并回传改后凭证截图</li>
+    <li>买家按商品图组核验资产；可加购鉴号（FR-C2）</li>
+    <li>买家点击「确认收货」（或到期自动确认 <span class="tbd">TBD，见 3.2</span>）</li>
+    <li>平台结算：扣佣金 <span class="tbd">费率 TBD</span> 后划入卖家钱包，Listing=已售出</li>
+  </ol>
+  <p><b>例外</b>：任一环节卖家 24h<span class="tbd">[假设]</span>无响应 → AI 客服提醒并通知运营；买家发起「交接失败退款」需勾选原因，卖家 48h 内可申诉，无申诉或申诉失败 → 全额退款、Listing 回「在售」或按责任下架。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A7</span>买家购买记录与售后入口 <span class="tag p0">P0</span></h3>
+  <p>「我的购买」列表展示订单状态、交接凭证、估值快照（下单时点的估值区间与性价比分，固化不可变）、包赔协议与理赔入口（理赔期内显示）。估值快照是理赔与纠纷的基准材料之一。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-A8</span>一键打通其他交易平台分发 <span class="tag p1">P1</span></h3>
+  <p><b>目的</b>：卖家在本平台发布后，一键把同一商品分发到其他游戏交易平台扩大曝光。</p>
+  <p><b>处理规则</b>：① 卖家在「渠道授权」中绑定第三方平台账号（登录态托管 <span class="tbd">方式与合规评估 TBD</span>）；② 平台按各渠道规范自动重组素材包：标题（渠道字数限制）、图片（渠道尺寸模板，复用 FR-A3 生成图）、价格、结构化描述；③ 具备发布能力的渠道由采集适配器反向复用做自动代发布，不具备的渠道提供「复制素材包」一键粘贴；④ 本平台改价/下架时向卖家推送同步提醒，<b>不自动</b>修改第三方平台在售价 <span class="tbd">[假设]</span>。</p>
+  <p><b>例外</b>：渠道风控拦截代发 → 降级为素材包模式并明示；分发产生的第三方平台成交与本平台无关，订单页需展示该边界声明。</p>
+</div>
+
+<h3>4.2 模块 B：大模型估值与性价比</h3>
+
+<div class="fr">
+  <h3><span class="frid">FR-B1</span>估值输入与输出 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：Listing 首次审核通过自动估值；卖家改价、资产字段变更、同游戏成交样本新增时重估 <span class="tbd">重估频率上限 TBD，建议每日 1 次</span>。</p>
+  <p><b>输入</b>（全部来自平台已有数据，不新增采集）：结构化资产字段（FR-A2）、同游戏同区服近期本平台成交样本、聚合在售商品同款挂牌价分布 <span class="tbd">样本冷启动量不足时的兜底策略见 Q4</span>。</p>
+  <p><b>输出</b>：估值区间 [低, 高]、中点值、性价比分、置信度（高/中/低）、依据说明（列出主要影响的 3–5 个资产因子与参考样本数）。置信度规则：可比样本 ≥20 → 高；5–19 → 中；&lt;5 → 低。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-B2</span>性价比分计算 <span class="tag p0">P0</span></h3>
+  <p>设 R = 估值中点 ÷ 当前挂牌价：</p>
+  <table>
+    <tr><th>规则</th><th>定义</th></tr>
+    <tr><td>性价比分</td><td>score = min(100, round(R × 70))。即挂牌价=估值中点得 70 分；低于估值约 43% 及以上封顶 100 分 <span class="tbd">系数 70 为初始参数，上线后校准</span></td></tr>
+    <tr><td>参与排序条件</td><td>仅置信度为「高/中」的商品参与性价比排序；「低」置信商品显示区间但性价比分位置标「样本不足」</td></tr>
+    <tr><td>取整与展示</td><td>区间取整到元；分数整数；每次展示附估值时间</td></tr>
+  </table>
+  <p><b>边界声明（强制展示）</b>：估值为模型参考，不构成价格承诺；卖家不因估值低于挂牌价被强制改价。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-B3</span>按性价比排序与筛选 <span class="tag p0">P0</span></h3>
+  <p>商品市场现有排序（最新/最低价/降价）新增「性价比」档：按性价比分降序，同分按上架时间倒序；与游戏 tab、平台 chip、价格区间筛选正交可叠加。卡片上以徽标显示分数（≥85 显示「超值」标签 <span class="tbd">[假设] 阈值</span>）。</p>
+  <div class="demo"><div class="dt">交互示意 · 排序切换（点击体验）</div>
+    <div style="margin-bottom:8px"><button class="rowbtn" id="btnPrice" onclick="sortDemo('price')">按价格</button> <button class="rowbtn on" id="btnValue" onclick="sortDemo('value')">按性价比</button></div>
+    <table style="margin:0"><thead><tr><th>商品</th><th>挂牌价</th><th>估值中点</th><th>性价比</th></tr></thead><tbody id="sortBody"></tbody></table>
+  </div>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-B4</span>详情页估值卡 <span class="tag p0">P0</span></h3>
+  <p>商品详情页价格下方固定估值卡：区间、中点、性价比分、置信度、依据说明（因子贡献 + 参考样本数）、估值时间与免责声明。买家可点「解读」展开模型自然语言说明（大模型生成，≤200 字，仅基于已展示数据，不得引入未验证外部信息）。</p>
+</div>
+
+<h3>4.3 模块 C：鉴号专家</h3>
+
+<div class="fr">
+  <h3><span class="frid">FR-C1</span>专家入驻 <span class="tag p0">P0</span></h3>
+  <p><b>流程</b>：申请（实名 + 该游戏资历证明：段位/账号资产/交易履历截图）→ 运营考核（试鉴定 2 单 <span class="tbd">[假设]</span>）→ 签约入驻（含保密与责任条款）。专家按游戏维度授权，可被暂停/清退。专家不得接自己名下或关联主体上架商品的鉴定单。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-C2</span>买家申请鉴定 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：① 下单前在详情页点「申请鉴号」；② 交接中由 AI 客服在核验步骤提示加购。两处均进入同一鉴号单流程。</p>
+  <p><b>规则</b>：支付鉴号费 <span class="tbd">定价 TBD（3.3）</span> → 进入专家池待接单（SLA：2h 内无人接单自动提醒运营 <span class="tbd">[假设]</span>）→ 专家在受控环境执行鉴定：核对资产清单与商品字段相符性、绑定与实名状态、二级密码/找回风险痕迹（申诉记录、常用设备异常等）、估值输入复核。<b>全程不向专家展示账号登录方式以外的可交易信息</b>；卖家须配合提供验证截图。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-C3</span>鉴定报告 <span class="tag p0">P0</span></h3>
+  <p><b>SLA</b>：接单后 24h 内出具 <span class="tbd">[假设]，可分档加急</span>。报告要素：结论四选一（<b>相符 / 部分不符 / 不符 / 无法鉴定</b>）、逐项资产核对表、风险项列表（找回风险等级：低/中/高）、建议。报告双方可见，永久挂订单证据链。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-C4</span>报告与交易联动 <span class="tag p0">P0</span></h3>
+  <table>
+    <tr><th>结论</th><th>产品行为</th></tr>
+    <tr><td>相符</td><td>详情页挂「已鉴·相符」标识（有效期 30 天 <span class="tbd">[假设]</span>）；交接继续</td></tr>
+    <tr><td>部分不符</td><td>AI 客服推送差异清单给双方；买家可选：按卖家确认修正后继续 / 取消订单全额退款（鉴号费不退 <span class="tbd">[假设]</span>）</td></tr>
+    <tr><td>不符</td><td>买家一键取消订单 → 全额退款；Listing 强制转「待审核-复核」，两次「不符」→ 下架并冻结卖家保证金/钱包 <span class="tbd">保证金机制 TBD</span></td></tr>
+    <tr><td>无法鉴定</td><td>卖家超时不配合 → 视为「不符」处理；专家能力不足 → 转单重鉴，原鉴号费退</td></tr>
+  </table>
+  <p><b>结算</b>：鉴定完成即按分成规则（3.3）结算专家费用；「不符」结论的报告仍计费 <span class="tbd">[假设]，防止卖家施压专家</span>。</p>
+</div>
+
+<h3>4.4 模块 D：找回包赔</h3>
+
+<div class="fr">
+  <h3><span class="frid">FR-D1</span>购买与双方签署 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：买家在下单页勾选「找回包赔」（+100 元）。<b>流程</b>：订单生成协议文本（自动填入：双方实名信息、账号标识、成交价、交接凭证清单、理赔条款）→ 买家支付即视为买方签署 → 卖家在 24h <span class="tbd">[假设]</span>内完成电子签（对接第三方电子签服务 <span class="tbd">厂商与费用 TBD</span>）→ 双方签署齐备协议生效；卖家逾期未签 → 订单自动退款关闭，卖家计入违约记录。</p>
+  <p><b>命名规范（产品决策）</b>：对外文案统一使用「找回包赔服务费 / 平台先行赔付」，<b>不使用「保险」字样</b>——保险业务持牌经营，平台以自身服务承诺承担赔付责任，避免无证经营风险。协议正文需律师审定后入库为模板 <span class="tbd">Q3</span>。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-D2</span>保障范围</h3>
+  <table>
+    <tr><th>项</th><th>规则</th></tr>
+    <tr><td>保障对象</td><td>已完成订单的账号，被<b>卖家或卖家关联第三方</b>通过申诉、原始凭证、实名找回等手段夺回</td></tr>
+    <tr><td>保障期</td><td>确认收货起 <span class="tbd">建议 180 天，TBD（Q3）</span></td></tr>
+    <tr><td>赔付上限</td><td><span class="tbd">建议 = 订单商品实付价款（不含鉴号费与包赔费本身），TBD</span></td></tr>
+    <tr><td>除外责任</td><td>① 买家主动外借/转卖/泄露凭证；② 站外私下交易或绕过平台改绑；③ 买家使用外挂等违规致封号（非找回）；④ 保障期外。除外认定以证据链为准</td></tr>
+  </table>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-D3</span>理赔申请与审核 <span class="tag p0">P0</span></h3>
+  <p><b>触发</b>：买家在「我的购买 → 申请理赔」提交：无法登录证据（登录失败/绑定被改截图）、时间线描述、可选鉴号报告。</p>
+  <p><b>审核流程</b>：AI 客服先收证初核（完整性校验 + 与交接证据链比对，输出审核建议）→ 运营裁决，SLA 72h <span class="tbd">[假设]</span> → 结论「通过 / 驳回（附理由，可申诉一次）」。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-D4</span>先行赔付与追偿 <span class="tag p0">P0</span></h3>
+  <p>审核通过后 <span class="tbd">建议 7 个自然日内，TBD</span> 从平台赔付资金池向买家原路全额赔付；同步：① 卖家钱包/保证金冻结等额；② 向卖家发出追偿通知（含协议、证据链包）；③ 卖家 15 日<span class="tbd">[假设]</span>内未异议或异议失败 → 划扣 + 卖家永久违约标记；④ 拒不配合的，平台向卖家出示完整证据链并支持买家/平台走法律途径（协议约定管辖与送达条款 <span class="tbd">律师审定 Q3</span>）。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-D5</span>卖家找回的违约与法律责任呈现 <span class="tag p0">P0</span></h3>
+  <p>协议签署页强制展示「找回即违约」条款摘要：找回行为认定手段（申诉找回、实名改回、原始注册凭证索回等）、赔付追偿、账号永久封禁、上报征信合作机构可行性 <span class="tbd">[假设] 需法务评估</span>、涉嫌犯罪的移送司法。卖家勾选确认 + 电子签双确认。发布不支持包赔的商品时，该条款仍作为平台规则展示。</p>
+</div>
+
+<h3>4.5 模块 E：AI 客服全程监管</h3>
+
+<div class="fr">
+  <h3><span class="frid">FR-E1</span>介入时机与会话形态 <span class="tag p0">P0</span></h3>
+  <p>订单创建（待支付起）即生成<b>订单三方会话</b>：买家 + 卖家 + AI 客服；AI 客服在支付成功、进入交接、每步节点、超时、报告产出、理赔提交六个时点主动播报。会话随订单生命周期存续，完成后只读归档。AI 客服只做引导、核验、记录与预警，<b>不代任何方执行资金与账号操作、不做纠纷裁决</b>。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-E2</span>交接引导与节点留痕 <span class="tag p0">P0</span></h3>
+  <p>按 FR-A6 六步逐步下发指令与完成校验（如「步骤 2：卖家提交资料」校验字段齐备才推进）；每一步的产生内容（消息、凭证、点击、状态变更）全部带时间戳写入订单证据链，证据链不可编辑、仅可追加，作为理赔与纠纷唯一依据。</p>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-E3</span>风险监测与预警 <span class="tag p0">P0</span></h3>
+  <table>
+    <tr><th>检测项</th><th>响应</th></tr>
+    <tr><td>引导站外交易/收款、脱离平台改绑</td><td>会话内红条警告双方 + 记入风险事件 + 通知运营</td></tr>
+    <tr><td>钓鱼链接、非官方下载引导</td><td>拦截链接展示并提示风险</td></tr>
+    <tr><td>索要密码/验证码给「客服」类话术</td><td>防诈骗提示（平台客服永不索要凭证）</td></tr>
+    <tr><td>单方失联、超时</td><td>按 FR-A6 例外规则提醒与升级</td></tr>
+  </table>
+</div>
+
+<div class="fr">
+  <h3><span class="frid">FR-E4</span>升级人工 <span class="tag p0">P0</span></h3>
+  <p>AI 客服无法处理（双方争议、连续 2 次指令校验失败、理赔争议）→ 自动转运营工单，携带证据链摘要；人工响应 SLA <span class="tbd">TBD：人工客服在线时段与响应时限（Q6）</span>。转人工不中断会话，AI 继续留痕。</p>
+  <div class="demo"><div class="dt">交互示意 · 订单三方会话（交接步骤 3）</div>
+    <div class="chat">
+      <div class="bub ai"><span class="who">AI 客服 · 14:02</span>请买家完成改密与换绑后，上传「绑定成功页」截图，系统将自动核对手机号归属。</div>
+      <div class="bub buyer"><span class="who">买家 · 14:11</span>换绑好了，卖家让我把新密码先发他确认一下？</div>
+      <div class="bub ai"><span class="who">AI 客服 · 14:11 ⚠</span><b>风险提示：</b>请勿向任何人（含卖家）发送凭证。卖家已无法查看您的绑定信息，本条对话已记入订单证据链。</div>
+      <div style="clear:both"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 5 ============ -->
+<h2 id="s5">5 共享规则</h2>
+
+<h3>5.1 资金与结算</h3>
+<ul>
+  <li>所有自营订单资金走既有担保支付托管；结算触发点 = 确认收货（手动或自动）；顺序：扣佣金 → 入卖家钱包；包赔费与鉴号费独立记账、不进入卖家结算。</li>
+  <li>赔付资金池：来源为包赔服务费计提 <span class="tbd">计提比例 TBD</span> + 卖家保证金 <span class="tbd">机制 TBD</span>；池余额与出账全部运营可见。</li>
+</ul>
+
+<h3>5.2 通知矩阵（节选关键事件）</h3>
+<table>
+  <tr><th>事件</th><th>买家</th><th>卖家</th><th>专家</th><th>运营</th></tr>
+  <tr><td>审核通过/驳回</td><td>—</td><td>站内+短信</td><td>—</td><td>—</td></tr>
+  <tr><td>订单支付成功</td><td>站内</td><td>站内+短信（含 24h 签署倒计时）</td><td>—</td><td>—</td></tr>
+  <tr><td>鉴号报告出具</td><td>站内</td><td>站内</td><td>站内</td><td>「不符/部分不符」实时</td></tr>
+  <tr><td>理赔审核结论</td><td>站内+短信</td><td>站内+短信</td><td>—</td><td>—</td></tr>
+  <tr><td>超时/失联预警</td><td>站内</td><td>站内</td><td>—</td><td>连续超时升级</td></tr>
+</table>
+
+<h3>5.3 脱敏与可见性</h3>
+<p>账号标识、区服外的登录信息在列表/详情/报告一律脱敏；原始凭证与生成图组仅订单相关方与运营在证据链内可见；估值依据说明不披露其他成交买家的任何信息。</p>
+
+<h3>5.4 内容风控（复用聚合侧能力）</h3>
+<p>商品描述与会话消息统一过「站外联系方式/私下交易话术/违规代练」检测；命中即按 FR-E3 或发布拦截处理。</p>
+
+<h3>5.5 审计与留存</h3>
+<p>Listing 审核记录、协议签署流水、证据链、理赔裁决记录留存 ≥3 年 <span class="tbd">按法务要求校准</span>；裁决类操作（审核、理赔、封禁）双人复核制 <span class="tbd">[假设]</span>。</p>
+
+<h3>5.6 合规边界（本迭代的立场变更）</h3>
+<div class="note">
+  <b>产品决策：</b>自营交易上线后，现行「仅做信息聚合，不参与交易、不提供担保」声明必须废止并替换为平台交易组织方声明。上线前需完成：① 协议文本律师审定；② 「包赔」命名与话术规避保险牌照问题（FR-D1）；③ 游戏厂商用户协议对账号交易的风险评估与应对口径 <span class="tbd">Q7</span>；④ 未成年人交易限制条款；⑤ 电子签与实名核验供应商合规评估 <span class="tbd">Q8</span>。任一项未完成，对应功能保持灰度。
+</div>
+
+<!-- ============ 6 ============ -->
+<h2 id="s6">6 开放问题（评审前需拍板）</h2>
+<table>
+  <tr><th>#</th><th>问题</th><th>影响</th></tr>
+  <tr><td>Q1</td><td>鉴号服务费定价与专家分成比例</td><td>专家供给意愿、买家转化</td></tr>
+  <tr><td>Q2</td><td>自营交易佣金费率（含会员权益是否减免佣金）</td><td>平台营收模型、卖家迁移意愿</td></tr>
+  <tr><td>Q3</td><td>包赔保障期、赔付上限、协议模板与管辖条款（律师）</td><td>赔付资金池风险敞口</td></tr>
+  <tr><td>Q4</td><td>估值冷启动：成交样本不足游戏的兜底（仅区间不排序 / 借挂牌价分布）</td><td>FR-B3 排序可信度</td></tr>
+  <tr><td>Q5</td><td>跨平台分发的渠道清单、授权方式与代发布合规性</td><td>FR-A8 范围</td></tr>
+  <tr><td>Q6</td><td>人工客服在线时段与升级响应 SLA</td><td>FR-E4</td></tr>
+  <tr><td>Q7</td><td>游戏厂商条款风险评估结论与对外口径</td><td>整体上线准入</td></tr>
+  <tr><td>Q8</td><td>实名核验、人脸、电子签供应商选型与单票成本</td><td>资质流程与包赔成本</td></tr>
+</table>
+
+<footer class="doc">游盯盘 PRD v2.0 · 自营交易与信任体系 · 2026-10-21 · 文中标注 [TBD]/[假设] 处为待拍板项，其余规则为评审基线。</footer>
+</div>
+
+<script>
+/* 下单合计 demo */
+(function(){
+  var base=3600, ins=100, ap=50, si=true, sa=false;
+  var swI=document.getElementById('swIns'), swA=document.getElementById('swAp'), t=document.getElementById('total');
+  function upd(){ t.textContent='¥'+(base+(si?ins:0)+(sa?ap:0)).toLocaleString(); }
+  swI.onclick=function(){ si=!si; swI.classList.toggle('on',si); upd(); };
+  swA.onclick=function(){ sa=!sa; swA.classList.toggle('on',sa); upd(); };
+})();
+/* 性价比排序 demo */
+var DEMO=[
+  {n:'原神 60级 满命火C', p:2800, v:3500},
+  {n:'王者荣耀 V10 全典藏', p:3600, v:4700},
+  {n:'和平精英 8级车 粉装套', p:1500, v:1550},
+  {n:'无畏契约 全皮肤号', p:5200, v:5600}
+];
+function sortDemo(k){
+  document.getElementById('btnPrice').classList.toggle('on',k==='price');
+  document.getElementById('btnValue').classList.toggle('on',k==='value');
+  var rows=DEMO.map(function(d){var r=d.v/d.p;return {n:d.n,p:d.p,v:d.v,s:Math.min(100,Math.round(r*70))};});
+  rows.sort(k==='price'?function(a,b){return a.p-b.p;}:function(a,b){return b.s-a.s;});
+  document.getElementById('sortBody').innerHTML=rows.map(function(x){
+    return '<tr><td>'+x.n+'</td><td>¥'+x.p.toLocaleString()+'</td><td>¥'+x.v.toLocaleString()+'</td><td><span class="score">'+x.s+'</span>'+(x.s>=85?' <b style="color:var(--accent)">超值</b>':'')+'</td></tr>';
+  }).join('');
+}
+sortDemo('value');
+</script>
+</body>
+</html>
