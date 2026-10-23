@@ -45,7 +45,7 @@ router.post('/orders', authRequired, (req, res) => {
   });
   db.prepare('UPDATE self_orders SET pay_order_no=? WHERE id=?').run(pay.order_no, orderId);
   // 订单三方会话自创建即生成（FR-E1）
-  addMessage(orderId, 'ai', `订单 ${orderNo} 已创建，请在 ${getSettingNum('self_pay_timeout_min', 30)} 分钟内完成担保支付，逾期自动取消。买家+卖家+AI 客服会话已开启，全程留痕。`, { event: 'created' });
+  addMessage(orderId, 'ai', `订单 ${orderNo} 已创建，请在 ${getSettingNum('self_pay_timeout_min', 30)} 分钟内完成担保支付，逾期自动取消。买家+卖家+平台客服会话已开启，支付成功后客服将拉三方服务群，全程留痕。`, { event: 'created' });
   addEvidence(orderId, 'pay', 'system', { created: true, total });
   res.json({ ok: true, data: { order_id: orderId, order_no: orderNo, total, pay_order: pay.order_no, compensation_fee: compFee, appraisal_fee: apprFee } });
 });
@@ -83,6 +83,7 @@ router.get('/orders/:id', authRequired, (req, res) => {
     .map(e => ({ ...e, detail: parseJSON(e.detail_json, {}) }));
   const risks = db.prepare('SELECT * FROM risk_events WHERE order_id=? ORDER BY created_at DESC').all(o.id);
   const acks = evidence.filter(e => e.type === 'ack').map(e => e.actor);
+  const contract = db.prepare('SELECT * FROM e_contracts WHERE order_id=?').get(o.id);
   res.json({ ok: true, data: {
     id: o.id, order_no: o.order_no, listing_id: o.listing_id,
     listing: l ? { server_name: l.server_name, channel: l.channel, game_name: game?.name, account_mask: maskAccount(l.account_id),
@@ -96,6 +97,7 @@ router.get('/orders/:id', authRequired, (req, res) => {
     refund_reason: o.refund_reason || '',
     valuation_snapshot: parseJSON(o.valuation_snapshot_json, null),
     plan: plan ? { ...plan, terms: parseJSON(plan.terms_json, null) } : null,
+    contract: contract ? { ...contract, terms: parseJSON(contract.terms_json, null) } : null,
     appraisals, messages, evidence, risks, acks,
     seller_real_name: o.seller_real_name || '',
     seller: sellerCreditInfo(o.seller_id),
@@ -110,6 +112,15 @@ function mustParty(req, res) {
   }
   return o;
 }
+
+// ---------- 交易电子合同（买卖双方支付/签署即生效，同等法律效力） ----------
+router.get('/orders/:id/contract', authRequired, (req, res) => {
+  const o = mustParty(req, res);
+  if (!o) return;
+  const c = db.prepare('SELECT * FROM e_contracts WHERE order_id=?').get(o.id);
+  if (!c) return res.json({ ok: false, error: '电子合同将在买家完成担保支付后即时生成' });
+  res.json({ ok: true, data: { ...c, terms: parseJSON(c.terms_json, null) } });
+});
 
 // 步骤 1：协议与费用确认（双方各自确认，齐备后推进）
 router.post('/orders/:id/ack-step1', authRequired, (req, res) => {
@@ -141,26 +152,26 @@ router.post('/orders/:id/step2-materials', authRequired, (req, res) => {
   const { login_account, login_password, bind_phone, bind_email, note } = req.body || {};
   if (!login_account || !login_password) return res.json({ ok: false, error: '账号与密码为必填（校验字段齐备才推进）' });
   addEvidence(o.id, 'material', 'seller', { login_account, bind_phone: bind_phone || '', bind_email: bind_email || '', note: note || '' });
-  addMessage(o.id, 'seller', '已提交账号登录资料与绑定信息，请买家尽快改密换绑。');
-  broadcast(o.id, 'step2_done', `卖家已提交账号资料（时间戳留痕）。请买家修改密码、换绑手机/邮箱，并回传「绑定成功页」截图。`);
+  addMessage(o.id, 'seller', '已提交账号登录资料与绑定信息，请买家尽快登录验号。');
+  broadcast(o.id, 'step2_done', `卖家已提交账号资料（时间戳留痕）。请买家使用资料登录账号，对照商品图组核验资产（验号），并在群内回传验号截图。`);
   advanceStep(o.id, 3);
   res.json({ ok: true });
 });
 
-// 步骤 3：买家改密换绑回传凭证 → 进入待收货确认（自动确认倒计时起算）
+// 步骤 3：买家验号回传凭证 → 进入待收货确认（自动确认倒计时起算）
 router.post('/orders/:id/step3-proof', authRequired, (req, res) => {
   const o = mustParty(req, res);
   if (!o) return;
-  if (o.buyer_id !== req.user.id && !req.user.is_admin) return res.json({ ok: false, error: '仅买家可回传换绑凭证' });
-  if (o.status !== 'handover' || o.handover_step !== 3) return res.json({ ok: false, error: '当前不在步骤 3（买家改密换绑）' });
+  if (o.buyer_id !== req.user.id && !req.user.is_admin) return res.json({ ok: false, error: '仅买家可回传验号凭证' });
+  if (o.status !== 'handover' || o.handover_step !== 3) return res.json({ ok: false, error: '当前不在步骤 3（买家验号）' });
   const { images, note } = req.body || {};
-  if (!Array.isArray(images) || !images.length) return res.json({ ok: false, error: '请上传换绑成功截图' });
+  if (!Array.isArray(images) || !images.length) return res.json({ ok: false, error: '请上传验号截图' });
   addEvidence(o.id, 'proof', 'buyer', { images, note: note || '' });
-  addMessage(o.id, 'buyer', '已完成改密与换绑，回传绑定成功页截图。');
+  addMessage(o.id, 'buyer', '已完成验号，回传验号截图。');
   const autoDays = getSettingNum('self_auto_confirm_days', 7);
   db.prepare(`UPDATE self_orders SET status='await_confirm', auto_confirm_at=? WHERE id=?`).run(Date.now() + autoDays * 86_400_000, o.id);
   advanceStep(o.id, 4);
-  broadcast(o.id, 'step4_hint', `请对照商品图组核验账号资产（可加购鉴号由专家出具报告）。确认后点击「确认收货」；${autoDays} 天内未操作将由平台自动确认结算。`);
+  broadcast(o.id, 'step4_hint', `换绑与二次实名完成后请点击「确认收货」；${autoDays} 天内未操作将由平台自动确认结算。`);
   res.json({ ok: true });
 });
 

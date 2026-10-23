@@ -3,7 +3,6 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { fmtPrice } from '../utils.js';
-import { store } from '../store.js';
 import EmptyState from '../components/EmptyState.vue';
 
 const router = useRouter();
@@ -90,10 +89,6 @@ function goDetail(id) {
       <div>
         <div class="page-title">游拍卖</div>
         <div class="page-sub" style="margin-bottom:0">游戏账号公开竞价 · 平台安全交易</div>
-      </div>
-      <div class="row" style="gap:10px">
-        <RouterLink v-if="store.token" to="/auctions/mine" class="btn btn-ghost">我的拍卖</RouterLink>
-        <RouterLink to="/auctions/publish" class="btn btn-primary">发布拍卖</RouterLink>
       </div>
     </div>
 

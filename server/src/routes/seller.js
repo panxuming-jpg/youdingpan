@@ -6,7 +6,8 @@
 import { Router } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import { db, parseJSON, getSettingNum, sellerCreditInfo, creditGrade } from '../db.js';
+import { db, parseJSON, getSettingNum, sellerCreditInfo, creditGrade, isMember, PLATFORMS } from '../db.js';
+import { addGoods } from '../search.js';
 import { templateFor, assetLabel, assetsZh } from '../asset_templates.js';
 import { authRequired, adminRequired } from '../middleware.js';
 import { maskAccount } from '../pay.js';
@@ -20,6 +21,41 @@ const router = Router();
 const FORBIDDEN_RE = /(微信|weixin|vx|VX|加我|扣扣|qq号|电话|手机号|联系方式|私下|站外|线下交易|绕过平台|代练|陪玩|出租)/i;
 
 // 结构化资产模板与中文标签（共享模块，见 asset_templates.js）
+
+// ---------- 会员权益：发布后自动同步六大平台（模拟镜像 goods，platform_item_id 含 listingId 保证幂等且不冲突） ----------
+const SYNC_PLATFORMS = ['jiaoyimao', 'panzhi', 'pangxie', '7881', 'dd373', '5173'];
+const SYNC_SOURCE_URL = {
+  jiaoyimao: 'https://www.jiaoyimao.com/search.html?keyword=',
+  panzhi: 'https://www.pzds.com/searchResult?keyword=',
+  pangxie: 'https://www.pxb7.com/search?keyword=',
+  '7881': 'https://search.7881.com/',
+  dd373: 'https://www.dd373.com/',
+  '5173': 'https://s.5173.com/#/search?keyword=',
+};
+// 商品展示标题（listings 无独立标题列，按游戏+区服合成）
+function listingTitle(gameName, serverName) {
+  return `${gameName || '账号'} · ${serverName || ''} 账号直售`.trim();
+}
+function syncListingToPlatforms(l, gameName) {
+  const now = Date.now();
+  const seller = db.prepare('SELECT nickname FROM users WHERE id=?').get(l.seller_id);
+  const title = listingTitle(gameName, l.server_name);
+  const images = JSON.stringify(parseJSON(l.raw_images_json, []));
+  const inserted = [];
+  for (const p of SYNC_PLATFORMS) {
+    const pid = `sync_${l.id}_${p}`;
+    if (db.prepare('SELECT 1 FROM goods WHERE platform=? AND platform_item_id=?').get(p, pid)) continue; // 幂等
+    const r = db.prepare(`INSERT INTO goods
+      (platform, platform_item_id, game_id, server_name, title, description, price, original_price,
+       lowest_price, tags, images, seller, publish_time, status, first_seen, last_seen, miss_count, last_drop, source_url)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'on',?,?,0,0,?)`)
+      .run(p, pid, l.game_id, l.server_name, title, l.description || '', l.price, l.price, l.price,
+        '[]', images, seller?.nickname || '', now, now, now, SYNC_SOURCE_URL[p] + encodeURIComponent(gameName || ''));
+    addGoods(Number(r.lastInsertRowid), `${title} ${l.server_name}`); // 增量维护搜索倒排索引，发布后立即可全网比价检索
+    inserted.push(PLATFORMS[p] || p);
+  }
+  return { title, inserted };
+}
 
 function shapeListing(l, { withValuation = true } = {}) {
   const game = db.prepare('SELECT name FROM games WHERE id=?').get(l.game_id);
@@ -48,6 +84,12 @@ function shapeListing(l, { withValuation = true } = {}) {
     listed_at: l.listed_at,
     created_at: l.created_at,
     valuation: v,
+    // 会员同步镜像：六大平台 goods 在售则返回平台中文名列表
+    synced_platforms: (() => {
+      const ids = SYNC_PLATFORMS.map(p => `sync_${l.id}_${p}`);
+      const rows = db.prepare(`SELECT platform FROM goods WHERE platform_item_id IN (${ids.map(() => '?').join(',')}) AND status='on'`).all(...ids);
+      return rows.map(x => PLATFORMS[x.platform] || x.platform);
+    })(),
   };
 }
 
@@ -134,7 +176,21 @@ router.post('/listings', authRequired, (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?)`)
     .run(req.user.id, game_id, server_name, channel || '', account_id, JSON.stringify(assets), JSON.stringify(raw_images), '[]',
       Math.round(p * 100) / 100, support_compensation === false ? 0 : 1, desc, now, now);
-  res.json({ ok: true, data: { id: Number(r.lastInsertRowid) } });
+  const listingId = Number(r.lastInsertRowid);
+  // 会员权益（模拟）：发布成功后自动同步六大平台镜像商品 + 站内通知；非会员返回提示供前端引导开通
+  let sync;
+  if (isMember(req.user.id)) {
+    const l = db.prepare('SELECT * FROM listings WHERE id=?').get(listingId);
+    const { title, inserted } = syncListingToPlatforms(l, g.name);
+    if (inserted.length) {
+      notifyRef(req.user.id, 'system', '会员自动同步上架',
+        `您的商品《${title}》已由会员权益自动同步上架至交易猫、盼之、螃蟹账号、7881、DD373、5173 六大平台。`);
+    }
+    sync = { enabled: true, platforms: inserted };
+  } else {
+    sync = { enabled: false, tip: '开通会员可自动同步六大平台' };
+  }
+  res.json({ ok: true, data: { id: listingId, sync } });
 });
 
 router.get('/listings/mine', authRequired, (req, res) => {

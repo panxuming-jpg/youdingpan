@@ -28,7 +28,7 @@ onMounted(load);
 <template>
   <main class="container page">
     <div class="page-title">追账号维权</div>
-    <div class="page-sub">已完成的担保订单账号被找回？平台依据交易存证核验证据，协助生成民事起诉状与报案材料包，并冻结卖家等额资金配合维权</div>
+    <div class="page-sub">已完成的安全交易订单账号被找回？平台依据交易存证核验证据，协助生成民事起诉状与报案材料包，并冻结卖家等额资金配合维权</div>
 
     <div v-if="loading && !cases.length" class="loading-box"><div class="spinner"></div>加载中…</div>
 

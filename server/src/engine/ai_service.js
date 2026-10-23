@@ -16,8 +16,8 @@ export const HANDOVER_STEPS = [
   null,
   '第 1 步 · 协议与费用确认：请买卖双方核对订单金额、包赔协议签署状态与交接凭证清单。',
   '第 2 步 · 卖家提交账号资料：请卖家在本会话内提交账号登录方式与绑定信息，系统将留时间戳。',
-  '第 3 步 · 买家改密换绑：请买家修改密码、换绑手机/邮箱，并回传「绑定成功页」截图。',
-  '第 4 步 · 核验资产：请买家对照商品图组核验账号资产；如有需要可加购鉴号服务由专家出具报告。',
+  '第 3 步 · 买家验号：请买家使用卖家提交的资料登录账号，对照商品图组核验资产，并在群内回传验号截图（如需专家核验可加购鉴号服务）。',
+  '第 4 步 · 换绑与二次实名：请完成手机/邮箱换绑与游戏内二次实名变更，并在群内回复凭证截图；全部就绪后点击「确认收货」。',
   '第 5 步 · 确认收货：请买家点击「确认收货」；到期未操作将由平台自动确认。',
   '第 6 步 · 平台结算：货款扣除佣金后划入卖家钱包，商品标记已售出，交易完成。',
 ];
@@ -68,7 +68,53 @@ export function advanceStep(orderId, step) {
 export function escalate(orderId, reason) {
   const admins = db.prepare('SELECT id FROM users WHERE is_admin=1').all();
   for (const a of admins) notify(a.id, 'system', `订单 #${orderId} 转人工`, `原因：${reason}。请查看订单会话与证据链摘要并介入处理。`);
-  broadcast(orderId, 'escalated', `已为您转接人工客服（运营工单），请保持会话畅通，AI 客服将继续记录交接过程。`);
+  broadcast(orderId, 'escalated', `已为您转接人工客服（运营工单），请保持会话畅通，平台客服将继续记录交接过程。`);
+}
+
+/**
+ * 三方群模拟会话（演示）：建群后卖家/买家/客服按交接六步节奏逐条发言，
+ * 走现有 SSE 推送（order_msg 事件），meta 标记 {"simulated":1}，前端渲染与真实消息一致。
+ * 幂等：该订单已存在 simulated 消息则跳过。setTimeout 链在约 12~60 秒内写完。
+ */
+const SIM_SCRIPT = [
+  ['seller', '在的在的，随时配合，先确认下协议和费用哈'],
+  ['buyer', '好的，我这边今晚就能验号'],
+  ['ai', '请卖家先提交账号资料截图（区服/资产/实名页），买家收到后在群内回复「开始验号」，全程留痕，谨防私下联系'],
+  ['seller', '资料已上传（{game} {server}），请查收'],
+  ['buyer', '登录看到了，皮肤数和描述一致'],
+  ['ai', '验号无异议的话，我们进入换绑与二次实名环节，请按指引操作并回复凭证'],
+  ['ai', '买家确认换绑凭证后可点击「确认收货」，货款 ¥{price} 由平台结算给卖家，全程平台留痕保障'],
+];
+const SIM_DELAYS_MS = [12_000, 18_000, 25_000, 33_000, 41_000, 49_000, 57_000];
+
+export function simulateChat(orderId) {
+  const o = db.prepare('SELECT * FROM self_orders WHERE id=?').get(orderId);
+  if (!o || !['paid', 'handover', 'await_confirm'].includes(o.status)) return;
+  const done = db.prepare(`SELECT 1 FROM order_messages WHERE order_id=? AND meta_json LIKE '%"simulated":1%' LIMIT 1`).get(orderId);
+  if (done) return; // 幂等：已有模拟群聊记录则跳过
+  const l = db.prepare('SELECT server_name FROM listings WHERE id=?').get(o.listing_id);
+  const g = db.prepare('SELECT name FROM games WHERE id=?').get(o.game_id);
+  const vars = {
+    game: g?.name || '该游戏',
+    server: l?.server_name || '',
+    price: Number(o.price).toFixed(2),
+  };
+  SIM_SCRIPT.forEach(([sender, tpl], i) => {
+    const content = tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+    setTimeout(() => {
+      // 订单已结束（完成/退款/取消）则不再插入后续模拟消息
+      const cur = db.prepare('SELECT status FROM self_orders WHERE id=?').get(orderId);
+      if (!cur || ['completed', 'refunded', 'cancelled', 'compensated_closed'].includes(cur.status)) return;
+      const msg = addMessage(orderId, sender, content, { simulated: 1 });
+      pushOrder(orderId, 'order_msg', { order_id: Number(orderId), event: 'sim', message: msg });
+    }, SIM_DELAYS_MS[i]);
+  });
+}
+
+/** 启动补跑：watch 重启会丢失 setTimeout 链，对交接中且无模拟记录的订单重新排期，保证刷新后总能看到群聊 */
+export function backfillSimulatedChats() {
+  const orders = db.prepare(`SELECT id FROM self_orders WHERE status IN ('paid','handover','await_confirm')`).all();
+  for (const o of orders) simulateChat(o.id);
 }
 
 /** 风险检测 + AI 应答。返回 AI 回复消息 */
@@ -104,7 +150,7 @@ export async function handleMessage(orderId, sender, content) {
   if (!reply) {
     reply = HANDOVER_STEPS[o.handover_step]
       ? `收到。当前请按流程完成：${HANDOVER_STEPS[o.handover_step]}`
-      : '收到，AI 客服已记录本条消息至订单证据链。如有疑问可点击「转人工」由运营介入。';
+      : '收到，平台客服已记录本条消息至订单证据链。如有疑问可点击「转人工」由运营介入。';
   }
   const msg = addMessage(orderId, 'ai', reply, { event: 'reply' });
   pushOrder(orderId, 'order_msg', { order_id: Number(orderId), event: 'reply', message: msg });

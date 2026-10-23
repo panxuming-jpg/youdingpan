@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api.js';
 import { fmtPrice, fmtDateTime } from '../utils.js';
 import { store } from '../store.js';
@@ -11,12 +11,12 @@ import Modal from '../components/Modal.vue';
 import PayModal from '../components/PayModal.vue';
 
 const router = useRouter();
+const route = useRoute();
 
-const tab = ref('sell'); // sell | buy | orders | sale
-const myAuctions = ref([]);
+// 卖家侧（我发布的 / 我售出的）已整合进卖家中心「拍卖商品」，此处仅保留买家 tab
+const tab = ref('buy'); // buy 我竞拍的 | orders 我买到的
 const myBids = ref([]);
 const myOrders = ref([]);
-const mySaleOrders = ref([]);
 const loading = ref(false);
 
 const now = ref(Date.now());
@@ -24,10 +24,6 @@ let timer = null;
 
 // 支付收银台
 const payOrderInfo = ref(null);
-// 发货弹窗
-const shipOrder = ref(null);
-const shipForm = ref({ ship_company: '', ship_no: '' });
-const shipping = ref(false);
 // 售后申诉弹窗
 const afterSaleOrder = ref(null);
 const afterSaleReason = ref('');
@@ -36,10 +32,8 @@ const afterSaleSubmitting = ref(false);
 async function load() {
   loading.value = true;
   try {
-    if (tab.value === 'sell') myAuctions.value = await api('/my/auctions');
-    else if (tab.value === 'buy') myBids.value = await api('/my/bids');
-    else if (tab.value === 'orders') myOrders.value = await api('/my/orders');
-    else mySaleOrders.value = await api('/my/sale-orders');
+    if (tab.value === 'buy') myBids.value = await api('/my/bids');
+    else myOrders.value = await api('/my/orders');
   } catch (e) {
     toast.error(e.message);
   } finally {
@@ -153,30 +147,13 @@ async function submitAfterSale() {
   }
 }
 
-// ---------- 卖家动作 ----------
-function openShip(o) {
-  shipOrder.value = o;
-  shipForm.value = { ship_company: '', ship_no: '' };
-}
-
-async function submitShip() {
-  if (!shipForm.value.ship_company.trim()) return toast.error('请填写物流公司');
-  if (!shipForm.value.ship_no.trim()) return toast.error('请填写物流单号');
-  shipping.value = true;
-  try {
-    await api(`/orders/${shipOrder.value.id}/ship`, { method: 'POST', body: shipForm.value });
-    toast.success('已发货，等待买家确认收货');
-    shipOrder.value = null;
-    load();
-  } catch (e) {
-    toast.error(e.message);
-  } finally {
-    shipping.value = false;
-  }
-}
-
 const offNotify = onNotify(() => load());
 onMounted(() => {
+  // 旧入口兼容：卖家侧 tab（我发布的/我售出的）重定向到卖家中心「拍卖商品」
+  if (['sell', 'sold', 'sale'].includes(route.query.tab)) {
+    router.replace({ path: '/seller', query: { tab: 'auction' } });
+    return;
+  }
   load();
   timer = setInterval(() => { now.value = Date.now(); }, 1000);
 });
@@ -189,43 +166,14 @@ onUnmounted(() => {
 <template>
   <main class="container page">
     <div class="page-title">我的拍卖</div>
-    <div class="page-sub">管理我发布的拍卖、参与的竞拍与安全交易订单</div>
+    <div class="page-sub">管理我参与的竞拍与我买到的订单 · 发布与管理拍卖请前往 <RouterLink to="/seller?tab=auction">卖家中心</RouterLink></div>
 
     <div class="tabs">
-      <button class="tab" :class="{ active: tab === 'sell' }" @click="switchTab('sell')">我发布的</button>
       <button class="tab" :class="{ active: tab === 'buy' }" @click="switchTab('buy')">我竞拍的</button>
       <button class="tab" :class="{ active: tab === 'orders' }" @click="switchTab('orders')">我买到的</button>
-      <button class="tab" :class="{ active: tab === 'sale' }" @click="switchTab('sale')">我售出的</button>
     </div>
 
     <div v-if="loading" class="loading-box"><div class="spinner"></div>加载中…</div>
-
-    <!-- 我发布的 -->
-    <template v-else-if="tab === 'sell'">
-      <div v-if="myAuctions.length" class="card" style="overflow:hidden">
-        <div v-for="a in myAuctions" :key="a.id" class="msg-item" style="cursor:pointer" @click="router.push(`/auctions/${a.id}`)">
-          <div style="flex:1; min-width:0">
-            <div class="row" style="gap:8px; flex-wrap:wrap">
-              <span class="badge" :class="statusBadge(a.status)">{{ statusLabel(a.status) }}</span>
-              <b style="font-size:14px">{{ a.title }}</b>
-            </div>
-            <div class="muted small" style="margin-top:4px">
-              {{ a.game_name }}<span v-if="a.server_name"> · {{ a.server_name }}</span>
-              · 起拍 {{ fmtPrice(a.start_price) }} · 加价 {{ fmtPrice(a.increment) }}
-              · {{ a.bid_count }} 次出价
-              <span v-if="a.current_price"> · 当前 {{ fmtPrice(a.current_price) }}</span>
-            </div>
-          </div>
-          <div style="text-align:right; flex:none">
-            <div class="muted small">{{ countdown(a) }}</div>
-            <div class="muted small" style="margin-top:4px">{{ fmtDateTime(a.created_at) }}</div>
-          </div>
-        </div>
-      </div>
-      <div v-else class="card">
-        <EmptyState text="还没有发布拍卖，点击右上角「发布拍卖」开始吧" icon="🔨" />
-      </div>
-    </template>
 
     <!-- 我竞拍的 -->
     <template v-else-if="tab === 'buy'">
@@ -254,7 +202,7 @@ onUnmounted(() => {
     </template>
 
     <!-- 我买到的（买家订单） -->
-    <template v-else-if="tab === 'orders'">
+    <template v-else>
       <div v-if="myOrders.length" class="card" style="overflow:hidden">
         <div v-for="o in myOrders" :key="o.id" class="msg-item">
           <div style="flex:1; min-width:0">
@@ -304,54 +252,6 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <!-- 我售出的（卖家订单） -->
-    <template v-else>
-      <div v-if="mySaleOrders.length" class="card" style="overflow:hidden">
-        <div v-for="o in mySaleOrders" :key="o.id" class="msg-item">
-          <div style="flex:1; min-width:0">
-            <div class="row" style="gap:8px; flex-wrap:wrap">
-              <span class="badge" :class="orderStatusBadge(o.status)">{{ orderStatusLabel(o.status) }}</span>
-              <b style="font-size:14px">{{ o.auction_title }}</b>
-            </div>
-            <div class="muted small" style="margin-top:4px">
-              买家：{{ o.buyer_name }} · 成交价 {{ fmtPrice(o.amount) }} · 下单时间 {{ fmtDateTime(o.created_at) }}
-            </div>
-            <div v-if="o.status === 'pending_payment'" class="muted small" style="margin-top:4px">
-              等待买家支付（15 分钟未支付订单自动关闭）
-            </div>
-            <div v-else-if="o.status === 'pending_ship'" class="small" style="color:var(--primary); margin-top:4px">
-              买家已付款，资金由平台担保 · 请尽快填写物流发货
-            </div>
-            <div v-else-if="o.status === 'pending_confirm'" class="muted small" style="margin-top:4px">
-              物流：{{ o.ship_company }} {{ o.ship_no }} · 等待买家确认收货
-              <template v-if="o.auto_confirm_at">
-                <br />{{ fmtDateTime(o.auto_confirm_at) }} 后系统自动确认，资金结算至您的余额
-              </template>
-            </div>
-            <div v-else-if="o.status === 'after_sale'" class="small" style="color:var(--warning); margin-top:4px">
-              买家发起售后申诉：{{ o.after_sale_reason }} · 担保资金已冻结，等待平台仲裁
-            </div>
-            <div v-else-if="o.status === 'completed'" class="muted small" style="margin-top:4px">
-              交易完成 · 货款已结算至您的平台余额（已扣除平台服务费）
-            </div>
-            <div v-else-if="o.status === 'refunded'" class="muted small" style="margin-top:4px">
-              已退款给买家 · {{ fmtDateTime(o.refunded_at) }}
-            </div>
-          </div>
-          <div style="text-align:right; flex:none; display:flex; flex-direction:column; gap:8px; align-items:flex-end">
-            <div style="font-size:16px; font-weight:700; color:var(--danger)">{{ fmtPrice(o.amount) }}</div>
-            <div class="row" style="gap:8px; flex-wrap:wrap; justify-content:flex-end">
-              <button v-if="o.status === 'pending_ship'" class="btn btn-primary btn-sm" @click="openShip(o)">填写物流发货</button>
-              <button class="btn btn-ghost btn-sm" @click="router.push(`/auctions/${o.auction_id}`)">查看拍卖</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-else class="card">
-        <EmptyState text="暂无售出订单" icon="📦" />
-      </div>
-    </template>
-
     <!-- 收银台 -->
     <PayModal
       v-if="payOrderInfo"
@@ -359,23 +259,6 @@ onUnmounted(() => {
       @close="payOrderInfo = null"
       @success="onPaySuccess"
     />
-
-    <!-- 发货弹窗 -->
-    <Modal v-if="shipOrder" title="填写物流发货" @close="shipOrder = null">
-      <div class="form-item">
-        <div class="form-label">物流公司</div>
-        <input v-model="shipForm.ship_company" class="input" placeholder="如：顺丰速运 / 账号交割可填「线上交割」" />
-      </div>
-      <div class="form-item">
-        <div class="form-label">物流单号</div>
-        <input v-model="shipForm.ship_no" class="input" placeholder="请输入物流/交割单号" />
-      </div>
-      <p class="form-hint">发货后买家有 7 天确认期，逾期系统自动确认收货，担保资金结算至您的余额。</p>
-      <template #foot>
-        <button class="btn btn-ghost" :disabled="shipping" @click="shipOrder = null">取消</button>
-        <button class="btn btn-primary" :disabled="shipping" @click="submitShip">{{ shipping ? '提交中…' : '确认发货' }}</button>
-      </template>
-    </Modal>
 
     <!-- 售后申诉弹窗 -->
     <Modal v-if="afterSaleOrder" title="售后申诉" @close="afterSaleOrder = null">

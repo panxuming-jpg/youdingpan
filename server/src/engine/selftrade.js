@@ -101,7 +101,7 @@ function scan() {
       const lastSeller = db.prepare(`SELECT created_at FROM order_messages WHERE order_id=? AND sender='seller' ORDER BY id DESC LIMIT 1`).get(o.id);
       if (lastSeller && lastSeller.created_at > now - silenceMs) continue;
       reminded.add('sil' + o.id);
-      broadcast(o.id, 'seller_silent', '卖家已超过 24 小时未响应交接流程，AI 客服已提醒并通知运营跟进。如长时间无进展可申请「交接失败退款」。');
+      broadcast(o.id, 'seller_silent', '卖家已超过 24 小时未响应交接流程，平台客服已提醒并通知运营跟进。如长时间无进展可申请「交接失败退款」。');
       notify(o.seller_id, 'system', '交接超时提醒', `订单 ${o.order_no} 请尽快在订单会话内提交账号资料，超时将由平台介入。`);
       const admins = db.prepare('SELECT id FROM users WHERE is_admin=1').all();
       for (const a of admins) notify(a.id, 'system', '卖家交接失联预警', `订单 ${o.order_no}（#${o.id}）卖家 24h 无响应，请关注。`);

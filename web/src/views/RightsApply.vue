@@ -114,7 +114,7 @@ onMounted(async () => {
     if (!d.is_buyer) {
       invalid.value = '仅订单买家本人可发起追账号维权';
     } else if (d.status !== 'completed') {
-      invalid.value = '仅「交易完成」的担保订单可申请追账号维权（交接失败请走退款/理赔流程）';
+      invalid.value = '仅「交易完成」的安全交易订单可申请追账号维权（交接失败请走退款/理赔流程）';
     } else {
       order.value = d;
       form.value.loss = String(d.total);

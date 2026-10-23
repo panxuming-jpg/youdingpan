@@ -127,11 +127,11 @@ onUnmounted(() => offNotify());
 
     <div v-else class="card">
       <EmptyState
-        :text="role === 'buy' ? '还没有买到的担保订单，去安全交易市场逛逛吧' : '还没有卖出的订单，在卖家中心上架账号商品吧'"
+        :text="role === 'buy' ? '还没有买到的安全交易订单，去安全交易市场逛逛吧' : '还没有卖出的订单，在卖家中心上架账号商品吧'"
         icon="📦"
       >
         <button class="btn btn-primary" @click="router.push(role === 'buy' ? '/self' : '/seller')">
-          {{ role === 'buy' ? '逛担保市场' : '去卖家中心' }}
+          {{ role === 'buy' ? '逛安全交易市场' : '去卖家中心' }}
         </button>
       </EmptyState>
     </div>

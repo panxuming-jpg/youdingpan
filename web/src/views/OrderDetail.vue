@@ -47,10 +47,10 @@ const STATUS_BADGE = {
   compensated_closed: 'badge-warning',
 };
 const EVIDENCE_TYPE_LABEL = {
-  pay: '担保支付', ack: '协议确认', material: '账号资料', proof: '换绑凭证',
+  pay: '担保支付', ack: '协议确认', material: '账号资料', proof: '验号凭证',
   sign: '协议签署', claim: '理赔/申诉', report: '鉴号报告', message: '会话留痕',
 };
-const ACTOR_LABEL = { buyer: '买家', seller: '卖家', ai: 'AI 客服', system: '系统', expert: '鉴号专家', admin: '运营' };
+const ACTOR_LABEL = { buyer: '买家', seller: '卖家', ai: '平台客服', system: '系统', expert: '鉴号专家', admin: '运营' };
 const RISK_TYPE_LABEL = { offsite: '站外交易引导', phishing: '钓鱼链接', credential_ask: '索要凭证话术' };
 const REFUND_REASONS = ['账号与商品描述不符', '卖家超时未提交资料/不配合', '实名无法换绑', '买家原因取消交易', '其他（见说明）'];
 
@@ -84,6 +84,8 @@ const archived = computed(() => ['completed', 'refunded', 'cancelled', 'compensa
 const canChat = computed(() => !archived.value && (isBuyer.value || isSeller.value));
 const hasAcked = computed(() => !!data.value?.acks?.includes(myRole.value));
 const plan = computed(() => data.value?.plan || null);
+const contract = computed(() => data.value?.contract || null);
+const showContract = ref(false);
 const needSellerSign = computed(() =>
   isSeller.value && plan.value?.status === 'pending_seller');
 
@@ -138,7 +140,7 @@ async function openPay() {
 }
 function onPaySuccess() {
   payOrder.value = null;
-  toast.success('支付成功，货款已进入平台托管，交接流程已开启');
+  toast.success('支付成功，货款已进入平台托管，客服已建立三方服务群');
   load();
 }
 
@@ -208,7 +210,7 @@ async function submitMaterials() {
       login_account: f.login_account.trim(), login_password: f.login_password,
       bind_phone: f.bind_phone.trim(), bind_email: f.bind_email.trim(), note: f.note.trim(),
     } });
-    toast.success('账号资料已提交（时间戳已留痕），请提醒买家尽快改密换绑');
+    toast.success('账号资料已提交（时间戳已留痕），请提醒买家尽快登录验号');
     showMaterials.value = false;
     await load();
   } catch (e) {
@@ -250,11 +252,11 @@ async function onProofFile(e) {
   }
 }
 async function submitProof() {
-  if (!proofImages.value.length) return toast.error('请上传「绑定成功页」截图');
+  if (!proofImages.value.length) return toast.error('请上传验号截图');
   proofLoading.value = true;
   try {
     await api(`/orders/${id}/step3-proof`, { method: 'POST', body: { images: proofImages.value, note: proofNote.value.trim() } });
-    toast.success('凭证已回传，进入核验资产与确认收货阶段');
+    toast.success('验号凭证已回传，请完成换绑与二次实名后确认收货');
     showProof.value = false;
     proofImages.value = [];
     proofNote.value = '';
@@ -341,6 +343,8 @@ async function pollMessages() {
       lastMsgId = Math.max(lastMsgId, ...rows.map(m => m.id));
       scrollChat();
     }
+    // 电子合同待卖家签署时轮询刷新，签署完成后即时展示生效状态
+    if (contract.value && contract.value.status === 'pending_seller') load();
   } catch { /* 轮询失败静默 */ }
 }
 function scrollChat() {
@@ -366,7 +370,7 @@ function bubbleClass(m) {
   return m.sender === myRole.value ? 'msg-mine' : 'msg-other';
 }
 function senderLabel(m) {
-  return { buyer: '买家', seller: '卖家', ai: 'AI 客服', system: '系统' }[m.sender] || m.sender;
+  return { buyer: '买家', seller: '卖家', ai: '平台客服', system: '平台客服' }[m.sender] || m.sender;
 }
 
 // ---------- 转人工 ----------
@@ -489,7 +493,7 @@ function evidenceText(e) {
     case 'pay': return d.created ? `订单创建，托管金额 ${fmtPrice(d.total)}` : `买家担保支付 ${fmtPrice(d.amount)}（渠道：${d.channel === 'wechat' ? '微信' : d.channel === 'alipay' ? '支付宝' : d.channel || '-'}）`;
     case 'ack': return '确认协议与费用（步骤 1）';
     case 'material': return `提交账号资料：${d.login_account}${d.bind_phone ? ' · 手机 ' + d.bind_phone : ''}${d.bind_email ? ' · 邮箱 ' + d.bind_email : ''}${d.note ? ' · ' + d.note : ''}`;
-    case 'proof': return `回传换绑凭证 ${Array.isArray(d.images) ? d.images.length : 0} 张${d.note ? ' · ' + d.note : ''}`;
+    case 'proof': return `回传验号凭证 ${Array.isArray(d.images) ? d.images.length : 0} 张${d.note ? ' · ' + d.note : ''}`;
     case 'sign': return '完成包赔协议电子签署';
     case 'claim': return d.refund_request ? `退款申请：${d.refund_request}`
       : d.refund_appeal ? `退款申诉：${d.refund_appeal}`
@@ -504,7 +508,7 @@ function evidenceText(e) {
 }
 
 // ---------- 交接步骤展示 ----------
-const STEP_TITLES = ['协议确认', '卖家交资料', '改密换绑', '核验资产', '确认收货', '平台结算'];
+const STEP_TITLES = ['协议确认', '卖家交资料', '买家验号', '换绑二次实名', '确认收货', '平台结算'];
 const currentHint = computed(() => {
   const hints = data.value?.step_hints || [];
   return hints[step.value] || '';
@@ -595,6 +599,37 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- ===== 交易电子合同（支付成功即生成，买卖双方即时电子签署） ===== -->
+      <div v-if="contract" class="card card-pad mb16" style="border-color:var(--primary)">
+        <div class="row between wrap" style="gap:10px; align-items:center">
+          <div class="card-title" style="margin:0">📜 {{ contract.terms?.title || '游戏账号交易电子合同' }}</div>
+          <span class="badge" :class="contract.status === 'signed' ? 'badge-success' : 'badge-warning'">
+            {{ contract.status === 'signed' ? '双方已签署 · 即时生效 · 同等法律效力' : '买家已签署，等待卖家即时签署' }}
+          </span>
+        </div>
+        <div class="kv-list mt16" style="grid-template-columns:110px 1fr">
+          <dt>合同编号</dt><dd>{{ contract.contract_no }}</dd>
+          <dt>合同标的</dt><dd>{{ contract.subject }}</dd>
+          <dt>合同价款</dt><dd>{{ fmtPrice(contract.amount) }}</dd>
+          <dt>出卖人（卖家）</dt>
+          <dd>
+            <span :class="contract.seller_signed_at ? 'ok' : 'muted'">
+              {{ contract.terms?.party_a?.name || data.seller_real_name || '卖家' }}（{{ contract.terms?.party_a?.id_mask || '已实名认证' }}）
+              {{ contract.seller_signed_at ? `已于 ${fmtDateTime(contract.seller_signed_at)} 完成电子签署` : '签署中…' }}
+            </span>
+          </dd>
+          <dt>买受人（买家）</dt>
+          <dd>{{ contract.terms?.party_b?.name || '买家' }}（{{ contract.terms?.party_b?.id_mask || '已实名认证' }}）{{ contract.buyer_signed_at ? ` · 已于 ${fmtDateTime(contract.buyer_signed_at)} 担保支付成功即完成电子签署` : ' · 待支付签署' }}</dd>
+          <dt>生效时间</dt><dd>{{ contract.signed_at ? fmtDateTime(contract.signed_at) : '双方签署完成后即时生效' }}</dd>
+          <dt>存证哈希</dt><dd class="small muted" style="word-break:break-all">SHA-256 · {{ contract.hash }}</dd>
+        </div>
+        <p class="small muted mt16">{{ contract.terms?.legal_basis || '本合同以数据电文形式订立，可靠电子签名与手写签名或盖章具有同等法律效力。' }}</p>
+        <div class="row mt16" style="gap:10px">
+          <button class="btn btn-primary" @click="showContract = true">查看合同全文</button>
+          <span class="small muted">合同全文、双方签署时间戳与哈希已存证于平台，可随时查验，纠纷时作为司法举证依据。</span>
+        </div>
+      </div>
+
       <!-- ===== 追账号维权入口（买家 + 已完成订单） ===== -->
       <div v-if="isBuyer && status === 'completed'" class="card card-pad mb16" style="border-color:var(--primary); background:var(--primary-weak)">
         <div class="row between wrap" style="gap:12px">
@@ -613,7 +648,7 @@ onUnmounted(() => {
 
       <!-- ===== 交接六步进度 ===== -->
       <div v-if="['paid','handover','await_confirm'].includes(status) || (status === 'completed' && step >= 1)" class="card card-pad mb16">
-        <div class="card-title">标准交接六步（AI 客服全程引导留痕）</div>
+        <div class="card-title">标准交接六步（平台客服全程引导留痕）</div>
         <div class="steps">
           <div v-for="(t, i) in STEP_TITLES" :key="t" class="step" :class="{ done: step > i + 1 || status === 'completed', cur: step === i + 1 && status !== 'completed' }">
             <div class="step-dot">{{ step > i + 1 || status === 'completed' ? '✓' : i + 1 }}</div>
@@ -662,15 +697,15 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- 步骤 3：买家改密换绑 -->
+        <!-- 步骤 3：买家验号 -->
         <template v-if="step === 3 && inHandover">
           <div class="mt16">
-            <button v-if="isBuyer && !showProof" class="btn btn-primary" @click="showProof = true">回传改密换绑凭证</button>
-            <span v-else-if="!isBuyer" class="small muted">请买家尽快修改密码、换绑手机/邮箱并回传「绑定成功页」截图。</span>
+            <button v-if="isBuyer && !showProof" class="btn btn-primary" @click="showProof = true">回传验号凭证</button>
+            <span v-else-if="!isBuyer" class="small muted">请买家登录账号核验资产，并在群内回传验号截图。</span>
           </div>
         </template>
 
-        <!-- 步骤 4/5：核验资产 + 确认收货 -->
+        <!-- 步骤 4/5：换绑与二次实名 + 确认收货 -->
         <template v-if="step >= 4 && ['handover', 'await_confirm'].includes(status)">
           <div class="row wrap mt16" style="gap:10px">
             <template v-if="isBuyer">
@@ -680,7 +715,7 @@ onUnmounted(() => {
               <button v-if="step >= 4" class="btn btn-primary" @click="confirmReceipt">确认收货</button>
               <button v-if="badAppraisal" class="btn btn-danger-ghost" @click="cancelByAppraisal">鉴号不符 · 一键取消全额退款</button>
             </template>
-            <span v-else-if="isSeller" class="small muted">买家正在核验资产，确认收货后平台将自动结算到您的钱包。</span>
+            <span v-else-if="isSeller" class="small muted">买家正在换绑与二次实名，确认收货后平台将自动结算到您的钱包。</span>
           </div>
         </template>
 
@@ -694,7 +729,7 @@ onUnmounted(() => {
       <!-- ===== 三方会话 ===== -->
       <div class="card card-pad mb16">
         <div class="row between wrap" style="gap:8px; margin-bottom:12px">
-          <div class="card-title" style="margin:0">三方会话（买家 + 卖家 + AI 客服 · 全程留痕）</div>
+          <div class="card-title" style="margin:0">三方服务群 · 客服 · 买家 · 卖家（全程留痕）</div>
           <div class="row" style="gap:8px">
             <button v-if="canChat" class="btn btn-ghost btn-sm" @click="showEscalate = true">转人工</button>
           </div>
@@ -711,7 +746,7 @@ onUnmounted(() => {
           <div v-if="!data.messages.length" class="muted small" style="padding:12px 0">会话暂无消息</div>
         </div>
         <div v-if="canChat" class="row mt16" style="gap:8px">
-          <input v-model="inputText" class="input" style="flex:1" maxlength="1000" placeholder="输入消息，AI 客服与对方均可见…" @keydown.enter.prevent="sendMessage" />
+          <input v-model="inputText" class="input" style="flex:1" maxlength="1000" placeholder="发消息到三方服务群，平台客服与对方均可见…" @keydown.enter.prevent="sendMessage" />
           <button class="btn btn-primary" :disabled="sending || !inputText.trim()" @click="sendMessage">{{ sending ? '发送中…' : '发送' }}</button>
         </div>
         <div v-else-if="archived" class="small muted mt8">订单会话已归档（只读），全部记录已固化至证据链。</div>
@@ -848,8 +883,8 @@ onUnmounted(() => {
         </template>
       </Modal>
 
-      <Modal v-if="showProof" title="步骤 3 · 回传改密换绑凭证" @close="showProof = false">
-        <p class="small muted mb16">请上传「绑定成功页」/「改密成功」截图（1-6 张），系统将记入证据链并开启自动确认倒计时。</p>
+      <Modal v-if="showProof" title="步骤 3 · 回传验号凭证" @close="showProof = false">
+        <p class="small muted mb16">请上传验号截图（登录成功页、资产核对页等，1-6 张），系统将记入证据链并开启自动确认倒计时；验号后请尽快完成换绑与二次实名。</p>
         <div class="row wrap" style="gap:8px; margin-bottom:12px">
           <div v-for="(u, i) in proofImages" :key="u" class="thumb">
             <img :src="u" alt="凭证" />
@@ -862,7 +897,7 @@ onUnmounted(() => {
         </label>
         <div class="form-item mt16">
           <label class="form-label">备注</label>
-          <textarea v-model="proofNote" class="textarea" rows="2" placeholder="如：已改密码并换绑至本人手机 138****"></textarea>
+          <textarea v-model="proofNote" class="textarea" rows="2" placeholder="如：已登录核验资产，与商品描述一致"></textarea>
         </div>
         <template #foot>
           <button class="btn btn-ghost" @click="showProof = false">取消</button>
@@ -947,6 +982,36 @@ onUnmounted(() => {
           <button class="btn btn-primary" :disabled="claimAppealLoading" @click="submitClaimAppeal">{{ claimAppealLoading ? '提交中…' : '提交申诉' }}</button>
         </template>
       </Modal>
+
+      <Modal v-if="showContract && contract" :title="contract.terms?.title || '游戏账号交易电子合同'" wide @close="showContract = false">
+        <div class="contract-doc">
+          <div class="contract-no">合同编号：{{ contract.contract_no }} · 关联订单：{{ contract.order_no }}</div>
+          <p class="small muted">{{ contract.terms?.legal_basis }}</p>
+          <div class="kv-list" style="grid-template-columns:120px 1fr">
+            <dt>出卖人（甲方）</dt><dd>{{ contract.terms?.party_a?.name }}（证件 {{ contract.terms?.party_a?.id_mask }}）</dd>
+            <dt>买受人（乙方）</dt><dd>{{ contract.terms?.party_b?.name }}（证件 {{ contract.terms?.party_b?.id_mask }}）</dd>
+            <dt>合同标的</dt><dd>{{ contract.subject }}</dd>
+            <dt>合同价款</dt><dd>{{ fmtPrice(contract.amount) }}</dd>
+          </div>
+          <ol class="terms-list mt16">
+            <li v-for="(t, i) in contract.terms?.terms || []" :key="i">{{ t }}</li>
+          </ol>
+          <div class="contract-signs mt16">
+            <div>
+              <b>甲方（卖家）电子签署</b>
+              <div class="sign-name">{{ contract.terms?.party_a?.name || '' }}</div>
+              <div class="small muted">{{ contract.seller_signed_at ? `签署时间：${fmtDateTime(contract.seller_signed_at)}` : '签署中…' }}</div>
+            </div>
+            <div>
+              <b>乙方（买家）电子签署</b>
+              <div class="sign-name">{{ contract.terms?.party_b?.name || '' }}</div>
+              <div class="small muted">{{ contract.buyer_signed_at ? `签署时间：${fmtDateTime(contract.buyer_signed_at)}（担保支付成功即签署）` : '待签署' }}</div>
+            </div>
+          </div>
+          <p class="small muted mt16">存证哈希 SHA-256：{{ contract.hash }}</p>
+          <p v-if="contract.status === 'signed'" class="small" style="color:var(--success, #16a34a)">✅ 本合同双方均已完成可靠电子签名，自签署之时起即时生效，与纸质合同具有同等法律效力。</p>
+        </div>
+      </Modal>
     </template>
   </main>
 </template>
@@ -1004,4 +1069,9 @@ onUnmounted(() => {
   position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none;
   border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; line-height: 1;
 }
+.contract-doc { font-size: 14px; line-height: 1.7; }
+.contract-no { font-weight: 700; color: var(--text2); margin-bottom: 8px; }
+.contract-signs { display: flex; gap: 24px; flex-wrap: wrap; border-top: 1px dashed var(--border); padding-top: 14px; }
+.sign-name { font-size: 20px; font-weight: 800; font-style: italic; color: var(--primary); letter-spacing: 2px; }
+.ok { color: var(--success); }
 </style>

@@ -7,7 +7,8 @@ const routes = [
   { path: '/market', name: 'market', component: () => import('./views/Market.vue'), meta: { title: '商品市场' } },
   { path: '/goods/:id', name: 'goods', component: () => import('./views/GoodsDetail.vue'), meta: { title: '商品详情' } },
   { path: '/auctions', name: 'auctions', component: () => import('./views/Auctions.vue'), meta: { title: '游拍卖' } },
-  { path: '/auctions/publish', name: 'auction-publish', component: () => import('./views/PublishAuction.vue'), meta: { title: '发布拍卖', auth: true } },
+  // 发布拍卖已整合进卖家中心「拍卖商品」，旧地址重定向
+  { path: '/auctions/publish', redirect: { path: '/seller', query: { tab: 'auction' } } },
   { path: '/auctions/mine', name: 'auction-mine', component: () => import('./views/MyAuctions.vue'), meta: { title: '我的拍卖', auth: true } },
   { path: '/auctions/:id', name: 'auction-detail', component: () => import('./views/AuctionDetail.vue'), meta: { title: '拍卖详情' } },
   { path: '/self', name: 'self-market', component: () => import('./views/SelfMarket.vue'), meta: { title: '安全交易市场' } },

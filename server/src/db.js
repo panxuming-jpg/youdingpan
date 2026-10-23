@@ -809,6 +809,24 @@ CREATE TABLE IF NOT EXISTS violations (
   detail TEXT DEFAULT '',
   created_at INTEGER
 );
+
+-- 交易电子合同（买家支付成功即生成，买卖双方即时电子签署，与纸质合同同等法律效力）
+CREATE TABLE IF NOT EXISTS e_contracts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL UNIQUE,
+  contract_no TEXT UNIQUE NOT NULL,
+  buyer_id INTEGER NOT NULL,
+  seller_id INTEGER NOT NULL,
+  subject TEXT DEFAULT '',            -- 合同标的（游戏·区服·账号掩码）
+  amount REAL DEFAULT 0,              -- 合同价款
+  terms_json TEXT DEFAULT '',         -- 合同全文条款
+  hash TEXT DEFAULT '',               -- 合同内容 SHA-256 存证
+  buyer_signed_at INTEGER,            -- 买家签署时间（担保支付成功即签署）
+  seller_signed_at INTEGER,           -- 卖家签署时间
+  status TEXT DEFAULT 'pending_seller', -- pending_seller | signed
+  created_at INTEGER, signed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ec_status ON e_contracts(status, created_at DESC);
 `);
 
 // 赔付资金池余额（来源：包赔费计提 fund_logs biz=comp_accrual；出账：biz=comp_payout）
@@ -951,4 +969,90 @@ if (policeCount === 0) {
   for (const [name, province, city, district, address, phone, jurisdiction, hours, lng, lat] of stations) {
     insPs.run(name, province, city, district, address, phone, '', '', jurisdiction, hours, lng, lat, SRC, now, 0);
   }
+}
+
+// ---------- 种子数据：自营安全交易市场（/self）演示在售商品 ----------
+// 幂等：account_id 为固定 demo_ 前缀，已存在则跳过，重启不翻倍。
+// 字段与 seller.js 发布/审核流程一致：status='on'（GET /self/listings 过滤 on/locked），listed_at 上架时间，
+// verified_until 部分带「已鉴·相符」标识；assets_json 用 asset_templates.js 各游戏模板 key。
+// 卖家分散到 12 个已 approved 且带信用分的用户；估值沿用 engine/valuation.js 的 valueListing（无 LLM Key 自动规则兜底）。
+const SEED_SELLERS = [4, 7, 10, 13, 14, 17, 18, 21, 22, 25, 26, 29]; // users 表中 seller_status='approved'，覆盖优秀/良好/一般各信用等级
+const SEED_IMGS = [
+  '/uploads/1790485423096-3mqbn0.png', '/uploads/1792759574274-0j2u4p.png', '/uploads/1792759574322-48gp2n.png',
+  '/uploads/1792759582973-66zmv5.png', '/uploads/1792759870286-ge5m7o.jpg', '/uploads/1792759870324-xew1be.jpg',
+];
+// [game_id, 区服, 渠道, account_id, 资产对象, 价格, 支持包赔, 描述, 已鉴标识]
+const seedListings = [
+  // 王者荣耀（sort_order=1，6 条）
+  [3, '安卓QQ区', 'QQ区', 'demo_wzry_01', { rank: '星耀100星', noble: 'V8', skins: 89, heroes: 98, key_assets: '荣耀典藏,李白凤求凰' }, 1280, 1, '自用号，典藏皮肤都在，退游出', true],
+  [3, '苹果微信区', '微信区', 'demo_wzry_02', { rank: '荣耀王者', noble: 'V10', skins: 156, heroes: 110, key_assets: '荣耀典藏×3,星元全套,全限定' }, 5800, 1, '星元全套，限定齐全，一号一主', true],
+  [3, '安卓微信区', '微信区', 'demo_wzry_03', { rank: '钻石', noble: 'V5', skins: 42, heroes: 76, key_assets: '孙悟空至尊宝' }, 380, 0, '入门小资号，英雄皮肤基础齐全', false],
+  [3, '安卓QQ区', 'QQ区', 'demo_wzry_04', { rank: '王者50星', noble: 'V9', skins: 120, heroes: 105, key_assets: '武则天倪克斯,全英雄' }, 2680, 1, '武则天在，英雄全收集，可验号', true],
+  [3, '苹果QQ区', 'QQ区', 'demo_wzry_05', { rank: '最强王者', noble: 'V7', skins: 75, heroes: 92, key_assets: '韩信白虎吟' }, 880, 1, '韩信白皮，段位高可带打', false],
+  [3, '安卓QQ区', 'QQ区', 'demo_wzry_06', { rank: '荣耀王者', noble: 'V10', skins: 203, heroes: 114, key_assets: '典藏全套,星元全套,全限定' }, 8800, 1, '满配天花板号，收藏党首选', true],
+  // 和平精英（sort_order=2，4 条）
+  [4, '安卓QQ区', 'QQ区', 'demo_hpjy_01', { rank: '英雄黄金', level: 45, skins: 98, vehicles: '7级车', key_assets: '玛莎拉蒂' }, 680, 1, '玛莎拉蒂在，时装近百', false],
+  [4, '微信区', '微信区', 'demo_hpjy_02', { rank: '无敌战神', level: 60, skins: 260, vehicles: '8级车,粉装套', key_assets: '玛莎拉蒂,粉装全套' }, 3200, 1, '战神段位粉装全套，顶级号', true],
+  [4, '苹果QQ区', 'QQ区', 'demo_hpjy_03', { rank: '钻石', level: 38, skins: 55, vehicles: '6级车', key_assets: '特斯拉' }, 260, 0, '低配娱乐号，价格实在', false],
+  [4, '安卓QQ区', 'QQ区', 'demo_hpjy_04', { rank: '战神', level: 52, skins: 140, vehicles: '7级车', key_assets: '兰博基尼' }, 1580, 1, '兰博基尼+战神框，收藏实用两相宜', true],
+  // 三角洲行动（sort_order=3，3 条）
+  [12, 'PC端', '官服', 'demo_sjz_01', { rank: '上校', skins: 48, heroes: 12, key_assets: '红名全套,M7改装件' }, 1200, 1, '红名装备齐全，改枪满配', false],
+  [12, '安卓端', '官服', 'demo_sjz_02', { rank: '大尉', skins: 22, heroes: 8, key_assets: 'AWM色差' }, 450, 1, '有色差AWM，新手过渡号', false],
+  [12, 'PC端', '官服', 'demo_sjz_03', { rank: '大校', skins: 65, heroes: 14, key_assets: '海鹰全套,KC17龙鳞' }, 2800, 1, '海鹰全套高战号，可验仓库', true],
+  // 无畏契约（sort_order=4，3 条）
+  [11, '全平台', '官服', 'demo_wwqy_01', { rank: '赋能', skins: 68, heroes: 16, key_assets: '冠军套,KAI套,大刀' }, 2100, 1, '冠军套赋能号，皮肤质量高', true],
+  [11, '电信一区', '官服', 'demo_wwqy_02', { rank: '不朽', skins: 41, heroes: 15, key_assets: '紫金套,裂击' }, 890, 1, '紫金套在，英雄全解锁', false],
+  [11, '全平台', '官服', 'demo_wwqy_03', { rank: '超凡', skins: 18, heroes: 12, key_assets: '亚拉axxis' }, 320, 0, '入门皮肤号，手感好', false],
+  // 原神（sort_order=6，3 条）
+  [1, '官服-天空岛', '官服', 'demo_yx_01', { level: 60, chars: 72, lights: 9, key_assets: '那维莱特C2,钟离全套' }, 1800, 1, '60级满探索，主C配置齐', true],
+  [1, 'B服-蒲公英', '渠道服', 'demo_yx_02', { level: 45, chars: 38, lights: 3, key_assets: '胡桃C1,护摩之杖' }, 550, 0, 'B服小资号，胡桃护摩在', false],
+  [1, '官服-世界树', '官服', 'demo_yx_03', { level: 60, chars: 85, lights: 21, key_assets: '纳西妲满C6,天空岛全套,全五星' }, 4600, 1, '接近全五星收藏号，武器池深', true],
+  // 崩坏：星穹铁道（sort_order=10，2 条）
+  [2, '官服-天穹市', '官服', 'demo_xqtd_01', { rank: '账号70级', skins: 12, heroes: 34, key_assets: '黄泉E2,流萤E0' }, 2400, 1, '黄泉E2高配，深渊满星', true],
+  [2, 'B服-黑塔', '渠道服', 'demo_xqtd_02', { rank: '账号65级', skins: 8, heroes: 28, key_assets: '镜流E0,刃' }, 720, 0, 'B服成品号，主流C都有', false],
+  // 火影忍者（sort_order=7，2 条）
+  [16, 'QQ区', 'QQ区', 'demo_hy_01', { rank: '影级', skins: 26, heroes: 48, key_assets: '斑[白面具],六道鸣人' }, 1100, 1, '白面具斑在，忍者池深', false],
+  [16, '微信区', '微信区', 'demo_hy_02', { rank: '上忍', skins: 12, heroes: 30, key_assets: '卡卡西[万花筒]' }, 350, 0, '万花筒卡卡西，休闲号', false],
+  // 鸣潮（sort_order=8，2 条）
+  [17, '官服', '官服', 'demo_mc_01', { rank: '账号60级', skins: 6, heroes: 24, key_assets: '忌炎C2,吟霖C1' }, 1650, 1, '忌炎C2成品，声骸毕业部分', true],
+  [17, 'B服', '渠道服', 'demo_mc_02', { rank: '账号50级', skins: 3, heroes: 16, key_assets: '椿' }, 480, 0, 'B服小号，椿在', false],
+  // 暗区突围（sort_order=11，2 条）
+  [19, '微信区', '微信区', 'demo_aq_01', { rank: '暗区传说', skins: 42, heroes: 9, key_assets: '红卡全套,AW满改' }, 980, 1, '仓库价值高，AW满改', false],
+  [19, 'QQ区', 'QQ区', 'demo_aq_02', { rank: '精英', skins: 18, heroes: 6, key_assets: 'M4满改' }, 290, 0, '起步号，改件齐全', false],
+  // 英雄联盟（sort_order 靠后，2 条）
+  [9, '艾欧尼亚', '官服', 'demo_lol_01', { rank: '王者', skins: 186, heroes: 160, key_assets: '全英雄,至臻艾希,青花瓷妮蔻' }, 1350, 1, '艾欧尼亚王者号，至臻皮肤在', true],
+  [9, '德玛西亚', '官服', 'demo_lol_02', { rank: '大师', skins: 64, heroes: 120, key_assets: '龙魂水晶' }, 260, 0, '大师段位，皮肤中等', false],
+  // 地下城与勇士（2 条）
+  [8, '跨五-浙江一区', '官服', 'demo_dnf_01', { rank: '重泉100级', skins: 15, heroes: 12, key_assets: '+17晨光,年套Avatar全套' }, 3600, 1, '+17晨光武器，年套齐，可验装备栏', true],
+  [8, '跨一-广东一区', '官服', 'demo_dnf_02', { rank: '重泉70级', skins: 6, heroes: 5, key_assets: '+12十字斩刀' }, 850, 0, '小号胚子，武器+12', false],
+  // 梦幻西游（2 条）
+  [6, '紫禁城', '官服', 'demo_mhxy_01', { rank: '175级大唐官府', skins: 8, heroes: 6, key_assets: '全红珍品武器,化生寺全套,精灵孟极' }, 6800, 1, '175高端号，珍品装备在，价值可验', true],
+  [6, '青花瓷', '官服', 'demo_mhxy_02', { rank: '109级方寸山', skins: 4, heroes: 3, key_assets: '珍品剑,精灵白泽' }, 1500, 1, '109任务号，白泽在', false],
+];
+
+const DAY_MS = 86_400_000;
+const insListingSeed = db.prepare(`INSERT INTO listings (seller_id, game_id, server_name, channel, account_id, assets_json, raw_images_json, gen_images_json,
+  price, support_compensation, description, status, verified_until, listed_at, created_at, updated_at)
+  SELECT ?,?,?,?,?,?,?,?,?,?,?, 'on', ?,?,?,?
+  WHERE NOT EXISTS (SELECT 1 FROM listings WHERE account_id=?)`);
+const seedValuedIds = []; // 本次新插入的商品 id，稍后触发估值
+seedListings.forEach((s, i) => {
+  const [gameId, server, channel, accountId, assets, price, comp, desc, verified] = s;
+  const listedAt = now - (i % 14 + 1) * DAY_MS - (i * 37 % 20) * 3_600_000; // 上架时间错开近两周
+  const rawImgs = [SEED_IMGS[i % 6], SEED_IMGS[(i + 1) % 6], SEED_IMGS[(i + 2) % 6]]; // 3 张真实存在的演示截图
+  const r = insListingSeed.run(
+    SEED_SELLERS[i % SEED_SELLERS.length], gameId, server, channel, accountId,
+    JSON.stringify(assets), JSON.stringify(rawImgs), '[]',
+    price, comp, desc,
+    verified ? now + 30 * DAY_MS : 0,
+    listedAt, listedAt, listedAt,
+    accountId,
+  );
+  if (r.changes > 0) seedValuedIds.push(Number(r.lastInsertRowid));
+});
+if (seedValuedIds.length) {
+  // 沿用审核通过后的估值流程：动态导入避免与 valuation.js 循环依赖；无 LLM Key 时自动规则兜底
+  import('./engine/valuation.js').then(({ valueListing }) => {
+    for (const id of seedValuedIds) valueListing(id).catch(() => {});
+  }).catch(() => {});
 }

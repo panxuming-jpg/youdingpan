@@ -1,16 +1,19 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, getToken } from '../api.js';
 import { store } from '../store.js';
 import { toast } from '../toast.js';
 import { fmtPrice, fmtDateTime } from '../utils.js';
 import EmptyState from '../components/EmptyState.vue';
 import Modal from '../components/Modal.vue';
+import AuctionPublishForm from '../components/AuctionPublishForm.vue';
+import AuctionSellList from '../components/AuctionSellList.vue';
 
 const router = useRouter();
+const route = useRoute();
 
-const tab = ref('entry'); // entry 入驻 | publish 发布 | goods 我的商品
+const tab = ref('entry'); // entry 入驻 | publish 发布 | goods 我的商品 | auction 拍卖商品
 const status = ref(null); // GET /seller/status
 const templates = ref([]); // GET /seller/templates
 const statusLoading = ref(false);
@@ -376,6 +379,19 @@ function switchTab(k) {
   if (k === 'goods') loadGoods();
 }
 
+// ---------- 拍卖商品（整合自「游拍卖」卖家侧：发布拍卖 + 我发布/售出的拍卖） ----------
+const showAuctionPublish = ref(false);
+const auctionListRef = ref(null);
+
+function onAuctionPublished(id) {
+  showAuctionPublish.value = false;
+  toast.success(`拍卖 #${id} 发布成功，拍卖已开始`);
+  auctionListRef.value?.goMine();
+}
+
+// 支持 /seller?tab=auction 直接定位到「拍卖商品」区块
+watch(() => route.query.tab, v => { if (v === 'auction') tab.value = 'auction'; }, { immediate: true });
+
 // ---------- 信用分绑定（支付宝/微信） ----------
 const creditForm = ref({ channel: 'alipay', score: '' });
 const creditBinding = ref(false);
@@ -431,6 +447,7 @@ onUnmounted(stopValuationPoll);
       <button class="tab" :class="{ active: tab === 'entry' }" @click="switchTab('entry')">卖家入驻</button>
       <button class="tab" :class="{ active: tab === 'publish' }" @click="switchTab('publish')">发布商品</button>
       <button class="tab" :class="{ active: tab === 'goods' }" @click="switchTab('goods')">我的商品</button>
+      <button class="tab" :class="{ active: tab === 'auction' }" @click="switchTab('auction')">拍卖商品</button>
     </div>
 
     <!-- ================= 卖家入驻 ================= -->
@@ -734,8 +751,25 @@ onUnmounted(stopValuationPoll);
       </div>
     </template>
 
+    <!-- ================= 拍卖商品 ================= -->
+    <template v-else-if="tab === 'auction'">
+      <div class="card card-pad mb16">
+        <div class="row between wrap" style="gap:10px">
+          <div>
+            <div class="card-title" style="margin:0">拍卖商品</div>
+            <div class="muted small" style="margin-top:4px">一口价商品与拍卖统一管理：发布拍卖、查看我发布 / 售出的拍卖</div>
+          </div>
+          <button class="btn btn-primary" @click="showAuctionPublish = !showAuctionPublish">
+            {{ showAuctionPublish ? '收起发布表单' : '＋ 发布拍卖' }}
+          </button>
+        </div>
+      </div>
+      <AuctionPublishForm v-if="showAuctionPublish" class="mb16" @published="onAuctionPublished" />
+      <AuctionSellList ref="auctionListRef" />
+    </template>
+
     <!-- ================= 我的商品 ================= -->
-    <template v-else>
+    <template v-else-if="tab === 'goods'">
       <div class="row between mb16">
         <span class="muted small">共 {{ goods.length }} 件商品</span>
         <button class="btn btn-ghost btn-sm" :disabled="goodsLoading" @click="loadGoods">刷新</button>
@@ -748,6 +782,7 @@ onUnmounted(stopValuationPoll);
               <span class="badge" :class="listingStatusMap[l.status]?.badge || 'badge'">{{ listingStatusMap[l.status]?.label || l.status }}</span>
               <b style="font-size:14px">#{{ l.id }} {{ l.game_name }} · {{ l.server_name }}</b>
               <span v-if="l.verified" class="badge badge-success">已验归属</span>
+              <span v-if="l.synced_platforms && l.synced_platforms.length" class="badge badge-primary" :title="'已同步至：' + l.synced_platforms.join('、')">{{ l.synced_platforms.length >= 6 ? '已同步六大平台' : '已同步 ' + l.synced_platforms.length + ' 个平台' }}</span>
             </div>
             <div class="muted small" style="margin-top:4px">
               {{ l.account_mask }}<span v-if="l.channel"> · {{ l.channel }}</span>

@@ -52,6 +52,17 @@ fi
 
 echo "==> [5/6] 数据目录 + 拍卖数据同步 + 时区..."
 mkdir -p "$APP_DIR/server/data" "$APP_DIR/server/uploads"
+# 全量包数据合并（仅 pack-full.ps1 生成的包携带 data-bundle）：
+# cp -rn = 不覆盖已存在文件——服务器上已有的数据库/图片/采集状态一律保留，
+# 只把服务器缺失的文件补进去；全新服务器则直接获得完整数据快照。
+if [ -d "$APP_DIR/data-bundle" ]; then
+  echo "    检测到 data-bundle 数据包，合并数据（已存在的文件不覆盖）..."
+  if [ -f "$APP_DIR/server/data/app.db" ]; then
+    echo "    已有 app.db：保留服务器数据库，不用数据包覆盖"
+  fi
+  cp -rn "$APP_DIR/data-bundle/server/data/." "$APP_DIR/server/data/" 2>/dev/null || true
+  cp -rn "$APP_DIR/data-bundle/server/uploads/." "$APP_DIR/server/uploads/" 2>/dev/null || true
+fi
 # 数据保护：服务器上已采集的数据库绝不覆盖（重复部署/升级时安全）
 if [ -f "$APP_DIR/server/data/app.db" ]; then
   echo "    检测到已有数据库 app.db（$(du -h "$APP_DIR/server/data/app.db" | cut -f1)），保留不覆盖"

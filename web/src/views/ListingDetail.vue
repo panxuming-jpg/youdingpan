@@ -121,7 +121,7 @@ async function submitOrder() {
 
 async function onPaySuccess() {
   payOrder.value = null;
-  toast.success('支付成功，货款已由平台担保托管，AI 客服已开启交接流程');
+  toast.success('支付成功，货款已由平台担保托管，客服已建立三方服务群并开启交接流程');
   if (createdOrder.value) router.push(`/orders/${createdOrder.value.order_id}`);
 }
 
@@ -185,6 +185,7 @@ onMounted(async () => {
             </template>
             <span v-if="detail.listed_at" class="muted small">上架于 {{ fmtDateTime(detail.listed_at) }}</span>
           </div>
+          <p v-if="detail.synced_platforms && detail.synced_platforms.length" class="muted small" style="margin-top:8px">本品同步自：{{ detail.synced_platforms.join('、') }}（会员卖家自动分发）</p>
         </div>
 
         <!-- 展示图组（生成图优先，卖家/管理员可看原始截图） -->

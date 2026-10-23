@@ -8,6 +8,8 @@ import { addClient } from './engine/sse.js';
 import { startEngine } from './engine/engine.js';
 import { startAuctionEngine } from './engine/auction.js';
 import { startSelfTradeEngine } from './engine/selftrade.js';
+import { backfillSimulatedChats } from './engine/ai_service.js';
+import { backfillPendingContracts, backfillMissingContracts } from './engine/contract.js';
 import authRoutes from './routes/auth.js';
 import sellerRoutes from './routes/seller.js';
 import orderRoutes from './routes/orders.js';
@@ -88,4 +90,9 @@ app.listen(PORT, () => {
   startEngine();
   startAuctionEngine();
   startSelfTradeEngine();
+  // 演示补跑：watch 重启丢失 setTimeout 链后，对交接中且无模拟群聊记录的订单重新排期（幂等）
+  setTimeout(() => backfillSimulatedChats(), 6000);
+  // 电子合同：存量已支付订单补建双方已签署合同 + 待卖家签署合同补签（均幂等）
+  setTimeout(() => backfillMissingContracts(), 2000);
+  setTimeout(() => backfillPendingContracts(), 3000);
 });

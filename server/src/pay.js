@@ -12,7 +12,8 @@
 import crypto from 'node:crypto';
 import { db, getSettingNum, extendMembership, fundLog } from './db.js';
 import { notify } from './engine/auction.js';
-import { broadcast, advanceStep, addEvidence } from './engine/ai_service.js';
+import { broadcast, advanceStep, addEvidence, addMessage, simulateChat } from './engine/ai_service.js';
+import { createSaleContract } from './engine/contract.js';
 import { latestValuation } from './engine/valuation.js';
 
 const PAY_TIMEOUT_MS = 15 * 60 * 1000; // 支付单 15 分钟超时
@@ -107,10 +108,15 @@ function fulfillSelfOrder(payOrder, now, channel) {
       VALUES (?,?,?,?,?, 'pending_accept', ?, ?)`).run(o.listing_id, o.id, o.buyer_id, o.game_id, o.appraisal_fee, now, now);
   }
   addEvidence(o.id, 'pay', 'buyer', { order_no: o.order_no, amount: o.total, channel });
+  // 交易电子合同：买家支付即签署，卖家即时完成电子签署，双方签署后合同生效（同等法律效力）
+  createSaleContract(o.id, now);
   broadcast(o.id, 'paid', `买家已完成担保支付 ¥${o.total.toFixed(2)}，货款由平台托管。${o.compensation_fee > 0 ? `找回包赔协议已生成，请卖家在 ${getSettingNum('seller_sign_hours', 24)} 小时内完成电子签署。` : ''}`);
+  // 支付成功即由平台客服拉群：买家 · 卖家 · 平台客服 三方服务群，验号/换绑与二次实名/确认收货全流程在群内完成
+  addMessage(o.id, 'system', '【平台客服】订单支付成功，货款已进入支付宝托管。买家支付即签署《游戏账号交易电子合同》，卖家正在完成电子签署，双方签署后合同即时生效（与纸质合同同等法律效力）。客服已建立三方服务群（买家 · 卖家 · 平台客服），接下来在本群完成：验号 → 换绑与二次实名 → 确认收货。请卖家先提交账号资料并配合买家验号。', { event: 'group_created' });
   advanceStep(o.id, 1); // 自动开启标准交接六步
-  notify(o.buyer_id, 'system', '支付成功', `自营订单 ${o.order_no} 支付成功，AI 客服已开启交接流程。`);
-  notify(o.seller_id, 'system', '买家已付款', `订单 ${o.order_no} 买家已付款（平台托管）。${o.compensation_fee > 0 ? `请在 ${getSettingNum('seller_sign_hours', 24)} 小时内签署包赔协议并提交账号资料。` : '请尽快在订单会话内提交账号资料。'}`);
+  simulateChat(o.id); // 演示：三方群内卖家/买家/客服按交接流程逐条模拟发言（约 12~60s，SSE 实时推送）
+  notify(o.buyer_id, 'system', '支付成功 · 三方服务群', `自营订单 ${o.order_no} 支付成功。客服已拉您进入订单 #${o.id} 三方服务群，验号、换绑与二次实名、确认收货均在本群完成。`);
+  notify(o.seller_id, 'system', '买家已付款 · 三方服务群', `客服已拉您进入订单 #${o.id} 三方服务群。${o.compensation_fee > 0 ? `请在 ${getSettingNum('seller_sign_hours', 24)} 小时内签署包赔协议并提交账号资料。` : '请尽快在群内提交账号资料并配合买家验号。'}`);
 }
 
 export function buildCompensationTerms(o) {

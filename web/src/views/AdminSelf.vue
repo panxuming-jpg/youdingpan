@@ -837,7 +837,7 @@ function valuationText(l) {
               <option value="open">退款相关（全部）</option>
               <option value="seller_appealed">申诉待裁决</option>
               <option value="refunding">退款申请中</option>
-              <option value="all">全部担保订单</option>
+              <option value="all">全部安全交易订单</option>
             </select>
             <span class="muted small">共 {{ refundOrders.length }} 单 · 仅「申诉待裁决」可裁决：同意退款=申诉失败，全额退款买家；驳回退款=申诉成立，交接继续</span>
           </div>
