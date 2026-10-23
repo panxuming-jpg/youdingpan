@@ -189,7 +189,7 @@ onUnmounted(() => {
 <template>
   <main class="container page">
     <div class="page-title">我的拍卖</div>
-    <div class="page-sub">管理我发布的拍卖、参与的竞拍与担保交易订单</div>
+    <div class="page-sub">管理我发布的拍卖、参与的竞拍与安全交易订单</div>
 
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'sell' }" @click="switchTab('sell')">我发布的</button>

@@ -31,6 +31,7 @@ const SORTS = [
 ];
 
 const CONF_LABEL = { high: '高置信', mid: '中置信', low: '低置信' };
+const GRADE_COLOR = { '优秀': 'var(--success)', '良好': 'var(--primary)', '一般': 'var(--warning)', '较差': 'var(--danger)' };
 
 // 关键词为前端过滤（后端列表返回全量在售/锁定商品）
 const filtered = computed(() => {
@@ -111,8 +112,8 @@ onMounted(async () => {
 
 <template>
   <main class="container page">
-    <div class="page-title">自营市场</div>
-    <div class="page-sub">平台自营担保账号：实名卖家 + 归属凭证审核 + AI 估值定价，支持找回包赔与鉴号服务</div>
+    <div class="page-title">安全交易市场</div>
+    <div class="page-sub">C2C 账号交易：卖家实名上架 + 信用分认证 + AI 估值定价 + 每笔交易客服全程服务，货款支付宝托管，支持找回包赔与鉴号服务</div>
 
     <!-- 游戏切换 tab -->
     <div class="game-tabs">
@@ -163,7 +164,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="loading" class="loading-box"><div class="spinner"></div>正在加载自营商品…</div>
+    <div v-if="loading" class="loading-box"><div class="spinner"></div>正在加载安全交易商品…</div>
     <template v-else>
       <div v-if="list.length" class="goods-grid">
         <div v-for="item in list" :key="item.id" class="goods-card" @click="openDetail(item)">
@@ -173,7 +174,8 @@ onMounted(async () => {
           </div>
 
           <div class="goods-top">
-            <span class="badge badge-primary">自营</span>
+            <span class="badge badge-primary">卖家上架</span>
+            <span v-if="item.seller_credit && item.seller_credit.credit_grade" class="badge" :style="{ color: GRADE_COLOR[item.seller_credit.credit_grade] }">信用{{ item.seller_credit.credit_grade }}</span>
             <span class="badge">{{ item.game_name }}</span>
             <span v-if="item.server_name" class="badge">{{ item.server_name }}</span>
             <span v-if="item.status === 'locked'" class="badge badge-danger">交易中</span>
@@ -201,13 +203,14 @@ onMounted(async () => {
 
           <div class="goods-meta">
             <span v-if="item.seller_name">{{ item.seller_name }}</span>
+            <span v-if="item.seller_credit" :style="{ color: item.seller_credit.online ? 'var(--success)' : '' }">{{ item.seller_credit.online ? '● 在线' : '○ ' + (item.seller_credit.last_active_text || '离线') }}</span>
             <span v-if="item.valuation">· 估值 {{ CONF_LABEL[item.valuation.confidence] || '' }}</span>
             <span v-if="item.listed_at">· {{ fmtDateTime(item.listed_at) }}上架</span>
           </div>
         </div>
       </div>
       <div v-else class="card">
-        <EmptyState text="暂无符合条件的自营商品，可切换游戏或放宽筛选条件" />
+        <EmptyState text="暂无符合条件的安全交易商品，可切换游戏或放宽筛选条件" />
       </div>
 
       <Pagination :page="page" :total="filtered.length" :size="size" @change="p => { page = p; }" />

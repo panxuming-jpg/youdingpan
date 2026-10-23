@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游盯盘 PRD · 买家追账号维权与全国派出所检索</title>
+<style>
+  :root {
+    --ink: #1c2333; --ink2: #4b5568; --line: #e3e7ef; --bg: #f7f8fb; --card: #ffffff;
+    --primary: #2f6bff; --primary-weak: #eaf1ff; --danger: #d64550; --danger-weak: #fdeef0;
+    --success: #1f9d63; --success-weak: #e8f7ef; --warning: #c77700; --warning-weak: #fff5e5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); line-height: 1.75; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  .cover { background: linear-gradient(135deg, #16224a 0%, #2f6bff 100%); color: #fff; border-radius: 16px; padding: 44px 40px; margin-bottom: 32px; }
+  .cover h1 { font-size: 30px; letter-spacing: 1px; }
+  .cover .sub { margin-top: 10px; font-size: 15px; opacity: .85; }
+  .cover .meta { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+  .cover .meta span { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 3px 14px; }
+  h2 { font-size: 22px; margin: 44px 0 16px; padding-left: 12px; border-left: 5px solid var(--primary); }
+  h3 { font-size: 17px; margin: 26px 0 10px; color: var(--ink); }
+  h4 { font-size: 15px; margin: 16px 0 6px; color: var(--ink2); }
+  p, li { color: var(--ink2); font-size: 14.5px; }
+  ul, ol { padding-left: 22px; margin: 8px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; margin: 14px 0; }
+  .fr { border-left: 4px solid var(--primary); }
+  .fr .fr-id { display: inline-block; background: var(--primary-weak); color: var(--primary); font-weight: 700; font-size: 13px; border-radius: 6px; padding: 2px 10px; margin-right: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; background: var(--card); }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; color: var(--ink2); }
+  th { background: #f0f3f9; color: var(--ink); font-weight: 600; white-space: nowrap; }
+  .tag { display: inline-block; font-size: 12px; border-radius: 4px; padding: 1px 8px; margin-right: 6px; white-space: nowrap; }
+  .p0 { background: var(--danger-weak); color: var(--danger); }
+  .p1 { background: var(--warning-weak); color: var(--warning); }
+  .tbd { background: var(--warning-weak); color: var(--warning); font-weight: 600; }
+  .ok { background: var(--success-weak); color: var(--success); }
+  .note { background: var(--primary-weak); border: 1px solid #c9dbff; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 14px; }
+  .warn { background: var(--danger-weak); border: 1px solid #f6c9ce; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 14px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 14px 0; }
+  .flow .step { background: var(--card); border: 1.5px solid var(--primary); color: var(--ink); border-radius: 10px; padding: 8px 14px; font-size: 13px; display: flex; align-items: center; }
+  .flow .arrow { color: var(--primary); font-weight: 700; display: flex; align-items: center; }
+  .flow .step.alt { border-color: var(--danger); }
+  .toc { columns: 2; font-size: 14px; }
+  .toc a { color: var(--primary); text-decoration: none; display: block; padding: 3px 0; }
+  .kv dt { font-weight: 600; color: var(--ink); float: left; width: 120px; }
+  .kv dd { margin-left: 130px; color: var(--ink2); }
+  footer { margin-top: 60px; text-align: center; font-size: 12.5px; color: #98a2b3; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="cover">
+  <h1>买家追账号维权 × 全国派出所检索</h1>
+  <div class="sub">游盯盘游戏账号交易平台 · 产品需求文档（PRD）— 模块 F「追账号维权」与模块 G「派出所检索报案指引」</div>
+  <div class="meta">
+    <span>版本 v0.1（评审稿）</span>
+    <span>日期 2026-10-22</span>
+    <span>关联：模块 A 卖家资质 / B 担保交易 / C 六步交接 / D 找回包赔 / E 信任体系</span>
+    <span>状态：待评审</span>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">目录</h3>
+  <div class="toc">
+    <a href="#s1">1. 背景与目标</a>
+    <a href="#s2">2. 范围与用户旅程</a>
+    <a href="#s3">3. 产品模型（角色 / 对象 / 状态）</a>
+    <a href="#s4">4. 功能需求 · 模块 F 买家追账号维权</a>
+    <a href="#s5">5. 功能需求 · 模块 G 全国派出所信息检索</a>
+    <a href="#s6">6. 共享规则与合规边界</a>
+    <a href="#s7">7. 开放问题（TBD）</a>
+  </div>
+</div>
+
+<h2 id="s1">1. 背景与目标</h2>
+<div class="card">
+  <p>游戏账号交易的行业性痛点是<strong>「卖家找回」</strong>：账号完成交接、货款结算后，卖家利用实名信息、注册证件或客服申诉渠道将账号找回，买家钱号两失。游盯盘现有防线为：卖家实名 + 归属凭证（模块 A）、货款托管与六步交接留痕（模块 B/C）、找回包赔（模块 D）。</p>
+  <p>但包赔覆盖不了全部场景：<strong>未勾选包赔的订单、损失超出赔付上限的订单、以及买家除退款外还想追究卖家责任</strong>的订单，买家在现实中缺少两条关键能力：</p>
+  <ul>
+    <li><strong>不会告</strong>：不知道起诉书怎么写、去哪个法院、需要准备什么证据；账号买卖纠纷标的多在数百至数万元，多数买家不值得付费请律师。</li>
+    <li><strong>不会报</strong>：卖家找回行为在司法实践中可能构成盗窃罪或诈骗罪（以实名制信息秘密取回已售账号），但买家不清楚该去哪个派出所报案、带什么材料、找哪个窗口。</li>
+  </ul>
+  <p><strong>产品决策</strong>：平台把「交易时已沉淀的合同、实名、交接、聊天证据」转化为维权弹药，提供两条闭环：</p>
+  <div class="flow">
+    <div class="step">账号被找回</div><div class="arrow">→</div>
+    <div class="step">平台一键生成起诉书（模块 F）</div><div class="arrow">→</div>
+    <div class="step">指引网上立案 / 跟踪进展</div>
+  </div>
+  <div class="flow">
+    <div class="step">账号被找回（涉嫌刑事）</div><div class="arrow">→</div>
+    <div class="step">检索管辖地派出所（模块 G）</div><div class="arrow">→</div>
+    <div class="step">生成报案材料包</div><div class="arrow">→</div>
+    <div class="step">线下/线上报案</div>
+  </div>
+  <h4>目标（可观察结果）</h4>
+  <ul>
+    <li>买家在订单页发起维权后，<strong>无需任何法律写作能力</strong>即可获得一份要素齐全（当事人、诉讼请求、事实理由、证据清单、管辖法院建议）的民事起诉书文件。</li>
+    <li>买家可按省/市/区、关键词或地图位置检索到派出所的地址、联系电话、值班窗口与管辖说明，并一键获得与该派出所匹配的报案材料清单。</li>
+    <li>平台在起诉与报案两场景中<strong>仅提供文书生成与信息指引</strong>，不作出法律结论、不代办诉讼与报案（见第 6 章合规边界）。</li>
+  </ul>
+</div>
+
+<h2 id="s2">2. 范围与用户旅程</h2>
+<div class="card">
+  <h4>最小完整旅程（P0）</h4>
+  <div class="flow">
+    <div class="step">① 买家申报账号被找回</div><div class="arrow">→</div>
+    <div class="step">② 平台核验并冻结相关方</div><div class="arrow">→</div>
+    <div class="step">③ 证据包自动归集</div><div class="arrow">→</div>
+    <div class="step">④ 一键生成起诉书</div><div class="arrow">→</div>
+    <div class="step">⑤ 检索管辖派出所 / 生成报案材料包</div><div class="arrow">→</div>
+    <div class="step">⑥ 维权案状态跟踪与结案</div>
+  </div>
+  <table>
+    <tr><th>优先级</th><th>内容</th></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>找回事件申报与核验、证据包归集、电子买卖合同存档调取、起诉书一键生成与导出、法院管辖建议、派出所数据入库与检索（地区/关键词/地图）、派出所详情、报案材料包生成、维权案状态机与平台协助出证</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>网上立案入口跳转指引、维权进度节点跟踪与提醒、派出所数据纠错反馈、赔付与诉讼的衔接（先行赔付后平台代位追偿）、律师人工复核通道</td></tr>
+    <tr><td>明确排除</td><td>平台代理诉讼/出庭、平台代为报案、在线庭审、判决结果预测、对卖家的刑事定性表述、付费律师撮合抽佣 <span class="tag tbd">TBD</span>（是否引入第三方律师服务另行评审）</td></tr>
+  </table>
+  <h4>关键失败恢复路径</h4>
+  <ul>
+    <li>找回申报核验不通过（证据不足）：给出补证清单与重新提交入口，不阻断包赔/申诉等其他通道。</li>
+    <li>卖家实名信息缺失或失效（历史订单）：起诉书被告信息降级为「姓名+身份证号+户籍地址待补」，并提示买家可向法院申请调查令，文书中如实标注来源。</li>
+    <li>派出所数据检索无结果：回退展示该区县级公安局信息并提示反馈纠错。</li>
+  </ul>
+</div>
+
+<h2 id="s3">3. 产品模型</h2>
+<div class="card">
+  <h4>角色</h4>
+  <table>
+    <tr><th>角色</th><th>在本模块中的行为</th></tr>
+    <tr><td>买家（受害方）</td><td>申报找回、补充证据、生成起诉书/报案材料包、跟踪维权案</td></tr>
+    <tr><td>卖家（被追索方）</td><td>收到平台风险通知；账户余额/提现冻结期间可提交申辩材料</td></tr>
+    <tr><td>平台客服</td><td>找回事件核验、证据包确认、出具《交易存证证明》</td></tr>
+    <tr><td>平台法务/风控</td><td>起诉书模板与生成结果抽检、冻结/解冻裁决、数据合规审查</td></tr>
+    <tr><td>管理员</td><td>派出所数据审核发布、纠错工单处理、维权案总览（运营管理中心）</td></tr>
+  </table>
+  <h4>核心业务对象</h4>
+  <table>
+    <tr><th>对象</th><th>定义与关键字段</th></tr>
+    <tr><td>维权案</td><td>买家一次找回维权的载体：关联订单、类型（民事起诉/刑事报案/并行）、状态机、证据包、产出文书、时间线</td></tr>
+    <tr><td>电子买卖合同</td><td>每笔担保订单支付成功时生成的《账号买卖合同》，含双方实名要素、标的物、价款、找回责任条款、送达地址与管辖约定；订单完成后只读存档</td></tr>
+    <tr><td>证据包</td><td>系统自动归集的标准化证据集合（清单见 6.1），买家可补充上传聊天/录屏等自证材料</td></tr>
+    <tr><td>起诉书</td><td>按民事起诉状规范结构生成的文书，含当事人、诉讼请求、事实与理由、证据清单、受诉法院建议；导出 PDF/Word</td></tr>
+    <tr><td>派出所信息</td><td>全国公安派出所公开信息条目（字段见 FR-G1），带来源与更新时间</td></tr>
+    <tr><td>报案材料包</td><td>面向报案场景的 PDF 合集：报案陈述模板 + 交易证据摘要 + 嫌疑人（卖家）信息页</td></tr>
+  </table>
+  <h4>维权案状态机</h4>
+  <table>
+    <tr><th>状态</th><th>进入条件</th><th>允许动作</th></tr>
+    <tr><td>待核验</td><td>买家提交找回申报</td><td>客服核验；买家补证；买家撤销（→已关闭）</td></tr>
+    <tr><td>已立案（维权）</td><td>核验确认存在找回事实或高度疑似</td><td>冻结卖家余额/提现；证据包生成</td></tr>
+    <tr><td>核验驳回</td><td>证据不足且补证超时</td><td>查看驳回原因；重新申报（新案）；转包赔/申诉通道</td></tr>
+    <tr><td>文书就绪</td><td>起诉书或报案材料包生成成功</td><td>下载、重新生成（修改事实陈述后）</td></tr>
+    <tr><td>已提交司法</td><td>买家确认已向法院递交/公安受案，并回填案号或回执</td><td>更新进展节点</td></tr>
+    <tr><td>进行中</td><td>回填立案/受理信息通过格式校验</td><td>记录节点：调解、开庭、判决、受案、不予立案等</td></tr>
+    <tr><td>已结案</td><td>买家登记结果（获赔/胜诉/和解/败诉/不予立案）</td><td>解除卖家冻结（按裁决）；结案问卷</td></tr>
+    <tr><td>已关闭</td><td>买家撤销或超时未推进（180 天）</td><td>重新发起（新案）</td></tr>
+  </table>
+  <div class="note">状态流转仅由「买家动作 + 平台裁决」驱动；平台不校验法院/公安结果的真实性，买家回填内容一律标注「买家自述」。</div>
+</div>
+
+<h2 id="s4">4. 功能需求 · 模块 F 买家追账号维权</h2>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F1</span><span class="tag p0">P0</span>找回事件申报与平台核验</h3>
+  <p><strong>目的</strong>：把「账号被找回」从口头纠纷变成有记录、有证据、有处置的维权案。</p>
+  <p><strong>入口</strong>：已完成担保订单详情页新增「账号被找回？发起追账号维权」按钮；订单完成后 365 天内可发起 <span class="tag tbd">TBD</span>（时限需法务确认与诉讼时效衔接）。</p>
+  <p><strong>申报字段</strong>：</p>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>规则</th></tr>
+    <tr><td>找回时间</td><td>日期时间</td><td>必填；不得晚于当前、不得早于订单完成时间</td></tr>
+    <tr><td>找回情形</td><td>单选</td><td>实名被改 / 绑定手机邮箱被换 / 客服申诉找回 / 密码被改 / 其他（文字说明 ≤200 字）</td></tr>
+    <tr><td>损失金额</td><td>数字</td><td>默认取订单实付金额，可修改（≤ 实付金额 + 后续充值凭证合计）</td></tr>
+    <tr><td>是否已尝试联系卖家</td><td>单选</td><td>是（附站内聊天记录）/ 否（提示先走订单会话）</td></tr>
+    <tr><td>自证材料</td><td>图片/视频</td><td>选填 ≤20 个；登录异常截图、客服申诉回执、账号实名页等</td></tr>
+    <tr><td>诉求类型</td><td>多选</td><td>民事起诉 / 刑事报案 / 先走找回包赔（勾选包赔时联动模块 D，见 6.4）</td></tr>
+  </table>
+  <p><strong>核验规则</strong>：提交后维权案进入「待核验」；客服 48 小时内 <span class="tag tbd">TBD</span>（SLA 待定）完成核验，核验动作包括：调取交接日志、比对账号绑定变更记录、向卖家发起 24 小时申辩（卖家逾期未回应视为默认）。核验通过 → 「已立案」，同时<strong>冻结卖家钱包余额与提现</strong>（金额上限=损失金额，见 6.3）；核验驳回 → 展示原因与补证清单。</p>
+  <p><strong>异常</strong>：同一订单重复申报 → 阻断并跳转已有维权案；订单处于包赔理赔中 → 允许并行申报但文书中注明「已获赔付金额」，避免双重受偿；卖家已注销账号 → 实名存档仍可调取，正常受理。</p>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F2</span><span class="tag p0">P0</span>电子买卖合同存档与调取</h3>
+  <p><strong>目的</strong>：起诉书的「合同依据」必须来自交易当时签署的文本，而非事后拼凑。</p>
+  <p><strong>规则</strong>：</p>
+  <ul>
+    <li>每笔担保订单<strong>支付成功时</strong>自动生成《账号买卖合同》（PDF，含双方姓名、身份证号脱敏段、手机号、账号标的（区服+掩码）、价款、支付时间、六步交接约定、找回责任条款、送达地址确认条款、管辖条款）。</li>
+    <li>合同文本采用平台固定模板 + 订单变量填充；签署方式为「下单页勾选同意 + 支付即生效」，勾选记录（时间戳、账号）随单存档。</li>
+    <li>合同只读存档于订单与维权案，双方均可在各自订单页下载；维权案生成文书时系统直接引用存档合同编号与关键条款。</li>
+    <li>历史订单（本功能上线前成交、无存档合同）：以「交易快照」替代合同，文书中如实标注「无书面合同，依据平台交易快照」。</li>
+  </ul>
+  <p><strong>管辖条款默认文本</strong>：「因本合同发生的争议，双方同意由<strong>合同履行地（买家收货/使用地）或被告住所地</strong>人民法院管辖；标的额符合小额诉讼程序的，适用小额诉讼程序。」<span class="tag tbd">TBD</span>（条款措辞由法务终审，格式条款效力风险见 6.5）。</p>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F3</span><span class="tag p0">P0</span>证据包自动归集</h3>
+  <p><strong>目的</strong>：起诉/报案最耗时的是整理证据，平台把交易全程留痕一次打包。</p>
+  <p><strong>归集清单</strong>（自动拉取 + 买家补充，详见 6.1 统一证据包规范）：合同、支付流水、交接六步日志、账号归属凭证（卖家入驻时上传）、订单会话记录、找回申报与自证材料、卖家实名信息、平台《交易存证证明》。</p>
+  <p><strong>结果</strong>：生成带页码与哈希校验码的证据包 PDF；证据包编号写入起诉书「证据清单」章节。买家可勾选剔除个别材料，剔除项在文书中如实留痕。</p>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F4</span><span class="tag p0">P0</span>起诉书一键生成</h3>
+  <p><strong>目的</strong>：核验通过后，买家在维权案内点一次「生成起诉书」即得到可递交的民事起诉状。</p>
+  <p><strong>生成流程</strong>：</p>
+  <div class="flow">
+    <div class="step">系统预填八要素</div><div class="arrow">→</div>
+    <div class="step">买家确认/修改事实陈述</div><div class="arrow">→</div>
+    <div class="step">AI 润色「事实与理由」</div><div class="arrow">→</div>
+    <div class="step">法务规则引擎校验</div><div class="arrow">→</div>
+    <div class="step">预览 → 导出 PDF/Word</div>
+  </div>
+  <p><strong>八要素预填规则</strong>：</p>
+  <table>
+    <tr><th>要素</th><th>来源</th><th>可编辑性</th></tr>
+    <tr><td>原告信息</td><td>买家实名（姓名、身份证号、住址、电话）</td><td>可修改（提示以身份证为准）</td></tr>
+    <tr><td>被告信息</td><td>卖家实名存档（姓名、身份证号、户籍/居住地址、注册手机号）</td><td>只读 + 补充项（其他联系方式）</td></tr>
+    <tr><td>诉讼请求</td><td>默认：① 返还购号款 ¥X；② 赔偿损失 ¥Y（充值/鉴定费等，买家填报）；③ 诉讼费由被告承担</td><td>可增删改，金额联动证据</td></tr>
+    <tr><td>事实与理由</td><td>交易时间线 + 找回事件 + 合同条款引用，AI 依据证据包生成叙述稿</td><td>可编辑；编辑后重新过规则校验</td></tr>
+    <tr><td>证据清单</td><td>证据包编号自动填充</td><td>随证据包勾选联动</td></tr>
+    <tr><td>受诉法院建议</td><td>管辖引擎（见下）给出 1-3 个候选法院及理由</td><td>可改选；自由填写时提示核实</td></tr>
+    <tr><td>送达地址确认</td><td>买家填写并电子签名确认</td><td>必填</td></tr>
+    <tr><td>落款签名</td><td>买家姓名 + 日期；导出后需本人手写签名后递交 <span class="tag tbd">TBD</span>（电子签名效力由法务确认）</td><td>—</td></tr>
+  </table>
+  <p><strong>管辖引擎规则</strong>：按「被告住所地 → 合同履行地（买家所在地）」顺序输出候选；两地跨省级时并列展示并说明选择后果（立案便利 vs 送达周期）；标的额 ≤ 各省小额诉讼上限时提示适用小额诉讼程序（一审终审、周期短）。</p>
+  <p><strong>法务规则引擎校验</strong>（生成前后各跑一次）：必填要素完整；金额与证据勾稽（诉请金额 ≤ 证据合计）；禁止出现侮辱性、定性刑事结论（如「被告构成盗窃罪」）等表述，命中则阻断并提示改写；文书尾部自动附加「本文书由平台依据交易存证辅助生成，内容经原告确认，最终是否立案以人民法院审查为准」。</p>
+  <p><strong>异常</strong>：AI 服务不可用 → 降级为纯模板填充（事实与理由使用固定句式），功能不中断；买家修改后重新生成保留历史版本。</p>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F5</span><span class="tag p1">P1</span>立案指引与维权进度跟踪</h3>
+  <ul>
+    <li>文书就绪后展示递交指引：人民法院在线服务（微信小程序）网上立案步骤、现场立案材料清单（起诉书 N 份、证据包、身份证明）。</li>
+    <li>买家回填「立案号/受理号 + 进展节点」（立案、缴费、调解、开庭、判决、执行），每节点带时间戳形成维权时间线，向买家与客服展示。</li>
+    <li>判决获赔后引导买家登记结果；卖家账户冻结按「已结案」裁决解除或划扣（划扣给买家需法院生效文书 <span class="tag tbd">TBD</span>，平台不自行划扣）。</li>
+    <li>180 天无进展 → 提醒并自动转「已关闭」，保留重新发起入口。</li>
+  </ul>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-F6</span><span class="tag p0">P0</span>平台协助出证（交易存证证明）</h3>
+  <p><strong>目的</strong>：以平台名义向法院/公安证明交易真实性与交接过程。</p>
+  <ul>
+    <li>维权案「已立案」后买家可申请《交易存证证明》，客服 3 个工作日内出具：载明订单号、双方实名核验结果、支付流水号、六步交接日志摘要、合同编号，加盖平台电子签章 <span class="tag tbd">TBD</span>（电子签章供应商待定）。</li>
+    <li>文书编号可在平台验证页验真（输入编号+校验码）。</li>
+    <li>法院/公安依法调取时按取证流程提供原始日志，不受买家申请限制。</li>
+  </ul>
+</div>
+
+<h2 id="s5">5. 功能需求 · 模块 G 全国派出所信息检索</h2>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-G1</span><span class="tag p0">P0</span>派出所数据入库与更新</h3>
+  <p><strong>目的</strong>：建立可检索的全国公安派出所公开信息库，为报案场景提供准确的「去哪里报」。</p>
+  <table>
+    <tr><th>字段</th><th>必填</th><th>说明</th></tr>
+    <tr><td>派出所名称</td><td>是</td><td>规范全称，如「XX市公安局XX分局XX派出所」</td></tr>
+    <tr><td>省 / 市 / 区县</td><td>是</td><td>标准行政区划三级编码</td></tr>
+    <tr><td>详细地址</td><td>是</td><td>含门牌；附经纬度（地图检索用）</td></tr>
+    <tr><td>联系电话</td><td>是</td><td>官方对外公布的值班/户籍窗口电话；无则标注「以 110 转接为准」</td></tr>
+    <tr><td>对接警官/窗口</td><td>否</td><td>仅收录官方公开的社区民警姓名与警号（警务公示信息）；未公开则显示「社区警务队（现场对接）」 <span class="tag tbd">TBD</span>（可公开范围需数据合规评审）</td></tr>
+    <tr><td>管辖范围</td><td>否</td><td>文字描述辖区；用于报案指引推荐</td></tr>
+    <tr><td>服务时间</td><td>否</td><td>24 小时接警 / 窗口工作时间</td></tr>
+    <tr><td>来源与更新时间</td><td>是</td><td>每条记录带来源（官网页面/政务开放数据）与采集时间；超过 12 个月标记「待核实」</td></tr>
+  </table>
+  <p><strong>数据来源</strong>：各地公安机关官网、政务服务网、公安开放数据平台等<strong>公开渠道</strong>采集 + 管理员后台人工校对入库 <span class="tag tbd">TBD</span>（首批覆盖城市范围与采集方式另行评审；禁止抓取需授权数据，遵守 robots 与法规）。</p>
+  <p><strong>更新</strong>：管理员可批量导入（CSV）与单条编辑；用户纠错反馈生成工单，管理员核实后发布新版本并保留历史。</p>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-G2</span><span class="tag p0">P0</span>派出所检索</h3>
+  <ul>
+    <li><strong>入口</strong>：全站导航「报案指引」独立页；维权案内「选择报案派出所」步骤；派出所详情可跳转回维权案。</li>
+    <li><strong>检索方式</strong>：① 行政区划逐级筛选（省→市→区县）；② 关键词（派出所名称/地址片段）；③ 地图模式：按当前位置显示周边派出所及距离（需买家授权定位，拒绝授权则仅用列表模式）。</li>
+    <li><strong>智能推荐</strong>：从维权案进入时，依据「案发地（买家账号使用地）/ 被告住所地」预置筛选条件，并展示推荐说明：「网络盗窃/诈骗案件一般由<strong>犯罪行为发生地或结果发生地</strong>公安机关管辖，建议优先选择您所在地（作为被骗结果发生地）派出所咨询报案」<span class="tag tbd">TBD</span>（表述由法务确认，仅作一般性指引）。</li>
+    <li><strong>结果列表</strong>：名称、区县、地址、电话、距离（地图模式）、更新时间徽标；空结果回退展示同级区县公安局条目并提供纠错入口。</li>
+  </ul>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-G3</span><span class="tag p0">P0</span>派出所详情页</h3>
+  <ul>
+    <li>展示 FR-G1 全部字段；电话一键复制/拨号（移动端 tel: 链接）；地址复制与地图导航跳转（外部地图 App）。</li>
+    <li>「该所报案提示」：是否 24 小时接警、需携带证件、经济类报案一般找哪个窗口（值班民警/经侦联络）——仅展示该所公开信息，不做承诺性表述。</li>
+    <li>「信息有误？」纠错按钮：提交后生成工单，详情页显示「已反馈，核实中」。</li>
+  </ul>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-G4</span><span class="tag p0">P0</span>报案材料包生成</h3>
+  <p><strong>目的</strong>：把起诉链路同款证据复用为报案格式，解决「报案说不清楚」。</p>
+  <ul>
+    <li>维权案中选择「刑事报案」诉求后，可选定目标派出所并生成《报案材料包》PDF：① 报案陈述模板（事情经过按时间线预填，买家修改确认）；② 交易证据摘要（合同、支付流水、交接日志、存证证明编号）；③ 被报案人（卖家）信息页：姓名、身份证号、注册手机号、平台账号 ID——来源标注「平台实名核验存档」；④ 损失金额与计算依据。</li>
+    <li>报案陈述模板尾部固定提示：「报请公安机关依法处理；本人对所述事实真实性负责。」买家确认后生成。</li>
+    <li>同步展示线上报案/求助渠道指引：110、反诈专线 96110、国家反诈中心 App（仅列官方渠道，不做跳转承诺）。</li>
+    <li>无维权案的用户也可生成「精简版材料包」：仅基于订单导出证据摘要，实名信息按 6.2 隐私规则脱敏。</li>
+  </ul>
+</div>
+
+<div class="card fr">
+  <h3 style="margin-top:0"><span class="fr-id">FR-G5</span><span class="tag p1">P1</span>维权案与派出所联动</h3>
+  <ul>
+    <li>报案材料包生成后，维权案状态推进节点增加「已递交材料（回执号回填）」；公安受案/不予立案结果由买家登记，平台据此联动 FR-F4（不予立案时可转民事起诉文书生成）。</li>
+    <li>「刑民并行」提示：同一事实已刑事报案的，起诉书事实部分自动注明报案情况，避免法院以刑拒立 <span class="tag tbd">TBD</span>（衔接规则由法务确认）。</li>
+  </ul>
+</div>
+
+<h2 id="s6">6. 共享规则与合规边界</h2>
+<div class="card">
+  <h3>6.1 统一证据包规范</h3>
+  <ul>
+    <li>证据条目字段：序号、名称、来源（系统存档/买家上传）、生成/取得时间、内容摘要、SHA-256 校验码。</li>
+    <li>系统存档类证据（合同、流水、交接日志、会话）由平台保证来源可溯；买家上传材料标注「买家提供，平台未核实」。</li>
+    <li>同一证据包在起诉书与报案材料包中复用同一编号体系，避免两份文书证据清单不一致。</li>
+  </ul>
+  <h3>6.2 实名数据使用与隐私</h3>
+  <ul>
+    <li>卖家身份证号、住址等<strong>仅在维权案（已立案）场景</strong>向买家展示，用途限定为「司法文书当事人信息」；文书与页面均附提示：「上述信息系平台实名核验存档，仅可用于本次维权，不得用于骚扰、公开传播等非法用途」。</li>
+    <li>无维权案导出材料时，对方身份证号按前 4 后 4 脱敏。</li>
+    <li>买家查看对方实名、生成文书、下载证据包均写入操作审计日志（谁、何时、哪笔订单、何种动作）。</li>
+    <li>卖家可申诉「信息被冒用」，客服核实期间冻结相关文书下载。</li>
+  </ul>
+  <h3>6.3 冻结与资金联动</h3>
+  <ul>
+    <li>维权案立案 → 冻结卖家钱包余额与提现申请，冻结上限 = 买家申报损失金额；卖家提交申辩可提前解冻（客服裁决）。</li>
+    <li>平台不因维权案自行划扣任何资金；划扣仅凭法院生效文书走线下执行流程。</li>
+    <li>维权案关闭/结案 → 按裁决解除冻结，通知双方。</li>
+  </ul>
+  <h3>6.4 与找回包赔（模块 D）的关系</h3>
+  <ul>
+    <li>已勾选包赔的订单：买家可先走理赔；理赔获赔后发起维权案时，诉请默认调整为「平台代位追偿」提示 <span class="tag tbd">TBD</span>（代位求偿主体与话术由法务确认），或买家就未覆盖损失部分继续起诉。</li>
+    <li>同一损失不得双重受偿：文书生成时自动带入「已获赔付 ¥X」并在诉请中扣减展示。</li>
+  </ul>
+  <h3>6.5 合规边界（产品红线）</h3>
+  <ul>
+    <li>平台非法律服务机构：所有文书为「辅助生成的草稿」，页面与文书均声明不保证立案结果；禁止出现定罪、量刑类结论性表述（规则引擎强制拦截）。</li>
+    <li>管辖条款等格式条款需显著提示并单独同意，避免被认定无效；上线前法务逐条评审模板。</li>
+    <li>派出所信息仅收录公开数据，展示「来源+更新时间」；警官个人信息仅限警务公示范围，若无法合规获取则整列不展示。</li>
+    <li>报案指引不得表述为「报案一定能立案」；涉刑事建议统一引导 110/96110/国家反诈中心 App。</li>
+    <li>未成年人交易、外挂账号等违规订单：维权案受理时校验订单合规性，违规订单转风控处理，不生成文书 <span class="tag tbd">TBD</span>（处置口径待定）。</li>
+  </ul>
+  <h3>6.6 通知矩阵</h3>
+  <table>
+    <tr><th>事件</th><th>买家</th><th>卖家</th><th>客服/管理员</th></tr>
+    <tr><td>找回申报提交</td><td>受理确认</td><td>申辩通知（24h 时限）</td><td>待办工单</td></tr>
+    <tr><td>核验通过/驳回</td><td>结果+下一步指引</td><td>结果+冻结/解冻说明</td><td>—</td></tr>
+    <tr><td>文书生成成功</td><td>下载链接</td><td>—</td><td>抽检队列</td></tr>
+    <tr><td>进展节点回填</td><td>时间线更新</td><td>重大节点（立案/判决）通知</td><td>—</td></tr>
+    <tr><td>结案</td><td>结果登记确认</td><td>冻结处置结果</td><td>归档报表</td></tr>
+  </table>
+</div>
+
+<h2 id="s7">7. 开放问题（TBD 汇总）</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>问题</th><th>影响</th><th>责任方</th></tr>
+    <tr><td>1</td><td>维权发起时限（365 天）与《民法典》三年诉讼时效、证据可得性的平衡</td><td>FR-F1</td><td>法务</td></tr>
+    <tr><td>2</td><td>合同管辖条款措辞与格式条款效力（显著提示方式）</td><td>FR-F2 / F4</td><td>法务</td></tr>
+    <tr><td>3</td><td>电子签名/平台电子签章供应商与法院采信度</td><td>FR-F4 / F6</td><td>法务 + 采购</td></tr>
+    <tr><td>4</td><td>是否引入第三方律师人工复核收费通道</td><td>模块 F 商业化</td><td>产品 + 商务</td></tr>
+    <tr><td>5</td><td>派出所数据首批覆盖范围、采集方式与警官信息公开边界</td><td>FR-G1</td><td>数据 + 合规</td></tr>
+    <tr><td>6</td><td>先行赔付后代位追偿的主体与文书口径</td><td>6.4</td><td>法务</td></tr>
+    <tr><td>7</td><td>违规订单（外挂/未成年）在维权链路中的处置口径</td><td>6.5</td><td>风控</td></tr>
+  </table>
+</div>
+
+<footer>游盯盘 · 买家追账号维权与全国派出所检索 PRD v0.1（评审稿）· 2026-10-22 · 本文档中所有 [TBD] 项在评审前不构成承诺</footer>
+</div>
+</body>
+</html>

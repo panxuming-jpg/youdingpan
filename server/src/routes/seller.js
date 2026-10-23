@@ -6,7 +6,8 @@
 import { Router } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import { db, parseJSON, getSettingNum } from '../db.js';
+import { db, parseJSON, getSettingNum, sellerCreditInfo, creditGrade } from '../db.js';
+import { templateFor, assetLabel, assetsZh } from '../asset_templates.js';
 import { authRequired, adminRequired } from '../middleware.js';
 import { maskAccount } from '../pay.js';
 import { notify as notifyRef } from '../engine/auction.js';
@@ -18,54 +19,24 @@ const router = Router();
 // 内容风控（PRD 5.4）：站外联系方式/私下交易话术/违规代练
 const FORBIDDEN_RE = /(微信|weixin|vx|VX|加我|扣扣|qq号|电话|手机号|联系方式|私下|站外|线下交易|绕过平台|代练|陪玩|出租)/i;
 
-// 结构化资产模板（FR-A2：按游戏模板）
-const ASSET_TEMPLATES = {
-  '王者荣耀': [
-    { key: 'rank', label: '段位', type: 'text', sample: '无双王者' },
-    { key: 'noble', label: '贵族等级', type: 'text', sample: 'V10' },
-    { key: 'skins', label: '皮肤数', type: 'number', sample: 147 },
-    { key: 'heroes', label: '英雄数', type: 'number', sample: 105 },
-    { key: 'key_assets', label: '典藏/限定（逗号分隔）', type: 'tags', sample: '荣耀典藏,全限定' },
-  ],
-  '和平精英': [
-    { key: 'rank', label: '段位', type: 'text', sample: '无敌战神' },
-    { key: 'level', label: '等级', type: 'number', sample: 60 },
-    { key: 'skins', label: '时装数', type: 'number', sample: 220 },
-    { key: 'vehicles', label: '载具皮肤', type: 'tags', sample: '粉装套,8级车' },
-    { key: 'key_assets', label: '关键资产（逗号分隔）', type: 'tags', sample: '玛莎拉蒂,粉装' },
-  ],
-  '原神': [
-    { key: 'level', label: '冒险等级', type: 'number', sample: 60 },
-    { key: 'chars', label: '角色数', type: 'number', sample: 45 },
-    { key: 'lights', label: '五星武器', type: 'number', sample: 12 },
-    { key: 'key_assets', label: '关键资产（逗号分隔）', type: 'tags', sample: '满命火C,专武' },
-  ],
-  'default': [
-    { key: 'rank', label: '段位/等级', type: 'text', sample: '' },
-    { key: 'skins', label: '皮肤/外观数', type: 'number', sample: 0 },
-    { key: 'heroes', label: '角色/英雄数', type: 'number', sample: 0 },
-    { key: 'key_assets', label: '关键资产（逗号分隔）', type: 'tags', sample: '' },
-  ],
-};
-
-function templateFor(gameName) {
-  return ASSET_TEMPLATES[gameName] || ASSET_TEMPLATES.default;
-}
+// 结构化资产模板与中文标签（共享模块，见 asset_templates.js）
 
 function shapeListing(l, { withValuation = true } = {}) {
   const game = db.prepare('SELECT name FROM games WHERE id=?').get(l.game_id);
-  const seller = db.prepare('SELECT nickname, seller_status FROM users WHERE id=?').get(l.seller_id);
+  const seller = sellerCreditInfo(l.seller_id);
   const v = withValuation ? latestValuation(l.id) : null;
   return {
     id: l.id,
     seller_id: l.seller_id,
-    seller_name: seller?.nickname || '',
+    seller_name: seller?.seller_name || '',
+    seller_credit: seller || null, // C2C 卖家信用：等级 + 支付宝/微信信用分 + 在线状态
     game_id: l.game_id,
     game_name: game?.name || '',
     server_name: l.server_name,
     channel: l.channel,
     account_mask: maskAccount(l.account_id),
     assets: parseJSON(l.assets_json, {}),
+    assets_zh: assetsZh(parseJSON(l.assets_json, {}), game?.name || ''), // 中文标签版，供所有展示端使用
     images: parseJSON(l.gen_images_json, []).length ? parseJSON(l.gen_images_json, []) : parseJSON(l.raw_images_json, []),
     raw_count: parseJSON(l.raw_images_json, []).length,
     price: l.price,
@@ -91,14 +62,31 @@ router.post('/seller/realname', authRequired, (req, res) => {
 });
 
 router.get('/seller/status', authRequired, (req, res) => {
-  const u = db.prepare('SELECT real_name, id_card, face_verified, seller_status, seller_reject_reason, seller_ban_until FROM users WHERE id=?').get(req.user.id);
+  const u = db.prepare('SELECT real_name, id_card, face_verified, seller_status, seller_reject_reason, seller_ban_until, alipay_credit_score, wechat_credit_score, credit_grade FROM users WHERE id=?').get(req.user.id);
   const proofs = db.prepare('SELECT p.*, g.name AS game_name FROM seller_proofs p LEFT JOIN games g ON g.id=p.game_id WHERE p.user_id=? ORDER BY p.id DESC').all(req.user.id)
     .map(p => ({ ...p, images: parseJSON(p.images, []), created_at: p.created_at }));
   res.json({ ok: true, data: {
     real_name: u.real_name || '', id_card_mask: u.id_card ? u.id_card.slice(0, 4) + '**********' + u.id_card.slice(-4) : '',
     face_verified: !!u.face_verified, seller_status: u.seller_status || '',
     reject_reason: u.seller_reject_reason || '', ban_until: u.seller_ban_until || 0, proofs,
+    alipay_credit_score: u.alipay_credit_score || 0, wechat_credit_score: u.wechat_credit_score || 0,
+    credit_grade: u.credit_grade || '',
   } });
+});
+
+// ---------- C2C 卖家信用：绑定支付宝/微信信用分（演示模式：模拟渠道授权回填） ----------
+router.post('/seller/credit-bind', authRequired, (req, res) => {
+  const { channel, score } = req.body || {};
+  if (!['alipay', 'wechat'].includes(channel)) return res.json({ ok: false, error: '渠道须为 alipay（芝麻信用）或 wechat（微信支付分）' });
+  const s = Math.round(Number(score));
+  if (!Number.isFinite(s) || s < 350 || s > 950) return res.json({ ok: false, error: '信用分须在 350-950 之间' });
+  const u = db.prepare('SELECT alipay_credit_score, wechat_credit_score FROM users WHERE id=?').get(req.user.id);
+  const alipay = channel === 'alipay' ? s : (u.alipay_credit_score || 0);
+  const wechat = channel === 'wechat' ? s : (u.wechat_credit_score || 0);
+  const grade = creditGrade(alipay, wechat);
+  const col = channel === 'alipay' ? 'alipay_credit_score' : 'wechat_credit_score';
+  db.prepare(`UPDATE users SET ${col}=?, credit_grade=? WHERE id=?`).run(s, grade, req.user.id);
+  res.json({ ok: true, data: { channel, score: s, credit_grade: grade, alipay_credit_score: alipay, wechat_credit_score: wechat } });
 });
 
 router.post('/seller/proof', authRequired, (req, res) => {
@@ -237,7 +225,7 @@ router.post('/listings/:id/generate-images', authRequired, async (req, res) => {
   const ts = Date.now();
   const shots = [
     svgShot({ gameLine, headline, big, no: l.id }),
-    svgShot({ gameLine, headline: '资产总览', rows: Object.entries(assets).map(([k, v]) => [tpl.find(t => t.key === k)?.label || k, String(v)]), no: l.id }),
+    svgShot({ gameLine, headline: '资产总览', rows: Object.entries(assets).map(([k, v]) => [assetLabel(k, game?.name || ''), String(v)]), no: l.id }),
     svgShot({ gameLine, headline: '关键资产', rows: keyAssets.length ? keyAssets.map((a, i) => [`#${i + 1}`, a]) : [['关键资产', '无']], no: l.id }),
     svgShot({ gameLine, headline: '段位 / 等级页', big: big.slice(0, 2), rows: [['区服', l.server_name], ['渠道', l.channel || '官服']], no: l.id }),
   ];

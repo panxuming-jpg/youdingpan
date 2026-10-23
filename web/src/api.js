@@ -1,4 +1,5 @@
-import router from './router.js';
+// 注意：router.js ↔ store.js ↔ api.js 存在循环依赖，静态 import router 会在模块求值期
+// 触发 "Cannot access 'TOKEN_KEY' before initialization"（TDZ），故 401 跳转改为动态导入。
 
 const TOKEN_KEY = 'ydp_token';
 const BASE = '/api';
@@ -54,6 +55,7 @@ export async function api(path, { method = 'GET', body, query } = {}) {
 
   if (res.status === 401) {
     setToken('');
+    const { default: router } = await import('./router.js');
     if (router.currentRoute.value.path !== '/login') {
       router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } });
     }

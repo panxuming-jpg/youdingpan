@@ -14,15 +14,13 @@ watch(() => store.token, t => (t ? connectSSE() : closeSSE()), { immediate: true
 const navs = computed(() => {
   const list = [
     { path: '/market', label: '商品市场' },
-    { path: '/self', label: '自营交易' },
+    { path: '/self', label: '安全交易' },
     { path: '/auctions', label: '游拍卖' },
     { path: '/tasks', label: '监控任务', auth: true },
     { path: '/messages', label: '消息中心', auth: true, badge: () => store.unread },
+    { path: '/help', label: '帮助中心' },
   ];
-  if (store.user?.is_admin) {
-    list.push({ path: '/admin', label: '管理后台' });
-    list.push({ path: '/admin/self', label: '自营管理' });
-  }
+  // 管理员功能不在首页/顶部导航展示，入口收敛到「个人中心 → 运营管理中心」独立页面
   return list.filter(n => !n.auth || store.token);
 });
 
@@ -63,7 +61,6 @@ const showContact = ref(false);
         <template v-if="store.user">
           <RouterLink to="/profile" class="nav-user">
             <b>{{ store.user.nickname }}</b>
-            <span v-if="store.user.is_admin" class="badge badge-primary" style="margin-left:6px">管理员</span>
           </RouterLink>
           <button class="btn btn-ghost btn-sm" @click="handleLogout">退出</button>
         </template>
@@ -75,7 +72,10 @@ const showContact = ref(false);
   <RouterView />
 
   <footer class="site-footer">
-    自营商品由平台审核后上架，交易全程平台担保：货款资金托管、交接六步留痕、找回包赔先行赔付。行情比价数据来自各平台公开页面，请以原平台为准并遵守其用户协议。账号交易须遵守各游戏用户协议，禁止外挂账号与未成年人交易。
+    账号商品均由实名卖家上架、平台审核后展示，交易全程平台担保：货款资金托管、交接六步留痕、找回包赔先行赔付。行情比价数据来自各平台公开页面，请以原平台为准并遵守其用户协议。账号交易须遵守各游戏用户协议，禁止外挂账号与未成年人交易。
+    <div class="footer-links">
+      <RouterLink to="/help">帮助中心</RouterLink>
+    </div>
   </footer>
 
   <div class="toast-wrap">

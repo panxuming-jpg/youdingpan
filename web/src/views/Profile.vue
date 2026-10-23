@@ -141,6 +141,14 @@ async function submitRealname() {
   }
 }
 
+// ---------- 身份切换（我是买家 / 我是卖家） ----------
+const role = ref('buy');
+function roleKey() { return 'ydp_role_' + (store.user?.id || 0); }
+function setRole(r) {
+  role.value = r;
+  try { localStorage.setItem(roleKey(), r); } catch { /* 忽略 */ }
+}
+
 onMounted(async () => {
   if (store.user) {
     fillFromUser(store.user);
@@ -154,6 +162,7 @@ onMounted(async () => {
     store.user = d;
     fillFromUser(d);
   } catch { /* 忽略 */ }
+  try { role.value = localStorage.getItem(roleKey()) || 'buy'; } catch { /* 默认买家 */ }
 });
 </script>
 
@@ -169,10 +178,9 @@ onMounted(async () => {
           <dl class="kv-list">
             <dt>用户 ID</dt><dd>#{{ store.user?.id }}</dd>
             <dt>手机号</dt><dd>{{ store.user?.phone }}</dd>
-            <dt>角色</dt><dd>
-              <span class="badge" :class="store.user?.is_admin ? 'badge-primary' : ''">
-                {{ store.user?.is_admin ? '管理员' : '普通用户' }}
-              </span>
+            <dt>当前身份</dt><dd>
+              <span class="badge badge-primary">{{ role === 'buy' ? '买家' : '卖家' }}</span>
+              <span v-if="store.user?.is_admin" class="badge badge-success" style="margin-left:6px">管理员</span>
             </dd>
           </dl>
           <button class="btn btn-danger-ghost btn-block mt16" @click="handleLogout">退出登录</button>
@@ -244,7 +252,7 @@ onMounted(async () => {
             </div>
           </template>
           <form v-else @submit.prevent="submitRealname">
-            <p class="muted small" style="line-height:1.6">自营下单、卖家发布、鉴号专家入驻均需先完成实名认证（演示环境模拟人脸核验即时通过）。</p>
+            <p class="muted small" style="line-height:1.6">安全交易下单、卖家上架、鉴号专家入驻均需先完成实名认证（演示环境模拟人脸核验即时通过）。</p>
             <div class="form-item">
               <label class="form-label">真实姓名</label>
               <input v-model="rnForm.real_name" class="input" maxlength="20" placeholder="与身份证一致" />
@@ -257,13 +265,54 @@ onMounted(async () => {
           </form>
         </div>
 
-        <!-- 自营交易入口 -->
+        <!-- 我的身份：买家 / 卖家（参考主流账号交易平台的身份分区） -->
         <div class="card card-pad">
-          <div class="card-title">自营交易</div>
-          <div style="display:flex; flex-direction:column; gap:8px">
-            <RouterLink to="/seller"><button class="btn btn-ghost btn-block">卖家中心（发布与管理）</button></RouterLink>
-            <RouterLink to="/orders"><button class="btn btn-ghost btn-block">我的订单（买到的 / 卖出的）</button></RouterLink>
-            <RouterLink to="/expert"><button class="btn btn-ghost btn-block">鉴号专家工作台</button></RouterLink>
+          <div class="card-title">我的身份</div>
+          <div class="role-switch">
+            <button :class="{ active: role === 'buy' }" @click="setRole('buy')">我是买家</button>
+            <button :class="{ active: role === 'sell' }" @click="setRole('sell')">我是卖家</button>
+          </div>
+
+          <template v-if="role === 'buy'">
+            <p class="muted small mb8" style="line-height:1.6">买家身份：全网比价、收藏监控、下单购买担保账号；货款由平台托管，确认收货后结算给卖家。</p>
+            <div class="role-grid">
+              <RouterLink to="/self"><button class="btn btn-primary btn-block">逛安全交易市场</button></RouterLink>
+              <RouterLink to="/market"><button class="btn btn-ghost btn-block">全网比价商品市场</button></RouterLink>
+              <RouterLink to="/tasks"><button class="btn btn-ghost btn-block">价格监控任务</button></RouterLink>
+              <RouterLink to="/orders?role=buy"><button class="btn btn-ghost btn-block">我买到的订单</button></RouterLink>
+              <RouterLink to="/rights"><button class="btn btn-ghost btn-block">追账号维权（被找回）</button></RouterLink>
+              <RouterLink to="/messages"><button class="btn btn-ghost btn-block">消息中心</button></RouterLink>
+            </div>
+          </template>
+
+          <template v-else>
+            <p class="muted small mb8" style="line-height:1.6">卖家身份：完成实名与归属凭证审核后上架账号，绑定支付宝/微信信用分提升成交率；成交后货款平台托管，交接完成自动结算。</p>
+            <div v-if="sellerStatus" class="muted small mb8">
+              卖家资质：
+              <span class="badge" :class="{ approved: 'badge-success', pending: 'badge-warning', rejected: 'badge-danger', banned: 'badge-danger' }[sellerStatus.seller_status] || 'badge-warning'">
+                {{ { approved: '已通过', pending: '审核中', rejected: '已驳回', banned: '已封禁' }[sellerStatus.seller_status] || '未申请' }}
+              </span>
+              <span style="margin-left:8px">信用等级：
+                <span class="badge" :class="sellerStatus.credit_grade ? 'badge-success' : 'badge-warning'">{{ sellerStatus.credit_grade || '未绑定信用分' }}</span>
+              </span>
+            </div>
+            <div class="role-grid">
+              <RouterLink to="/seller"><button class="btn btn-primary btn-block">卖家中心（入驻 / 上架账号）</button></RouterLink>
+              <RouterLink to="/seller"><button class="btn btn-ghost btn-block">管理在售商品与信用分绑定</button></RouterLink>
+              <RouterLink to="/orders?role=sell"><button class="btn btn-ghost btn-block">我卖出的订单</button></RouterLink>
+              <RouterLink to="/wallet"><button class="btn btn-ghost btn-block">货款钱包与提现</button></RouterLink>
+              <RouterLink to="/expert"><button class="btn btn-ghost btn-block">鉴号专家工作台</button></RouterLink>
+            </div>
+          </template>
+        </div>
+
+        <!-- 运营管理中心：管理员独立入口（不占用顶部导航） -->
+        <div v-if="store.user?.is_admin" class="card card-pad">
+          <div class="card-title">运营管理中心（管理员）</div>
+          <p class="muted small mb8">管理功能不在首页展示，请从此独立入口进入。</p>
+          <div class="role-grid">
+            <RouterLink to="/admin"><button class="btn btn-ghost btn-block">平台管理后台</button></RouterLink>
+            <RouterLink to="/admin/self"><button class="btn btn-ghost btn-block">安全交易管理（审核/理赔/资金）</button></RouterLink>
           </div>
         </div>
       </div>
@@ -316,6 +365,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.role-switch { display: flex; gap: 8px; margin-bottom: 10px; }
+.role-switch button {
+  flex: 1; padding: 8px 0; border: 1px solid var(--border, #e8eaef); border-radius: 8px;
+  background: transparent; color: var(--text2, #666); cursor: pointer; font-weight: 600; font-size: 14px;
+}
+.role-switch button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.role-grid { display: flex; flex-direction: column; gap: 8px; }
 .member-status {
   border-radius: 10px; padding: 12px 14px; background: var(--bg, #f5f6f8);
 }

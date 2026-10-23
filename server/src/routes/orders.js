@@ -2,7 +2,8 @@
  * 自营订单路由（PRD FR-A5/A6/A7）：下单/托管支付/交接六步/确认收货/结算/退款
  */
 import { Router } from 'express';
-import { db, parseJSON, getSettingNum, fundLog } from '../db.js';
+import { db, parseJSON, getSettingNum, fundLog, sellerCreditInfo } from '../db.js';
+import { assetsZh } from '../asset_templates.js';
 import { authRequired } from '../middleware.js';
 import { createPayOrder } from '../pay.js';
 import { notify } from '../engine/auction.js';
@@ -85,7 +86,7 @@ router.get('/orders/:id', authRequired, (req, res) => {
   res.json({ ok: true, data: {
     id: o.id, order_no: o.order_no, listing_id: o.listing_id,
     listing: l ? { server_name: l.server_name, channel: l.channel, game_name: game?.name, account_mask: maskAccount(l.account_id),
-      assets: parseJSON(l.assets_json, {}), images: parseJSON(l.gen_images_json, []).length ? parseJSON(l.gen_images_json, []) : parseJSON(l.raw_images_json, []),
+      assets: parseJSON(l.assets_json, {}), assets_zh: assetsZh(parseJSON(l.assets_json, {}), game?.name || ''), images: parseJSON(l.gen_images_json, []).length ? parseJSON(l.gen_images_json, []) : parseJSON(l.raw_images_json, []),
       raw_images: parseJSON(l.raw_images_json, []), support_compensation: !!l.support_compensation, status: l.status } : null,
     buyer_id: o.buyer_id, seller_id: o.seller_id, is_buyer: o.buyer_id === req.user.id,
     price: o.price, compensation_fee: o.compensation_fee, appraisal_fee: o.appraisal_fee, total: o.total,
@@ -97,6 +98,7 @@ router.get('/orders/:id', authRequired, (req, res) => {
     plan: plan ? { ...plan, terms: parseJSON(plan.terms_json, null) } : null,
     appraisals, messages, evidence, risks, acks,
     seller_real_name: o.seller_real_name || '',
+    seller: sellerCreditInfo(o.seller_id),
   } });
 });
 

@@ -27,6 +27,7 @@ const payOrder = ref(null);
 const createdOrder = ref(null); // { order_id, order_no, total }
 
 const CONF_LABEL = { high: '高置信', mid: '中置信', low: '低置信' };
+const GRADE_COLOR = { '优秀': 'var(--success)', '良好': 'var(--primary)', '一般': 'var(--warning)', '较差': 'var(--danger)' };
 const buyable = computed(() => detail.value && detail.value.status === 'on');
 const estTotal = computed(() => {
   if (!detail.value) return 0;
@@ -36,7 +37,9 @@ const estTotal = computed(() => {
 });
 const assetRows = computed(() => {
   if (!detail.value) return [];
-  return Object.entries(detail.value.assets || {}).map(([k, v]) => [assetLabels.value[k] || k, String(v)]);
+  const src = detail.value.assets_zh
+    || Object.fromEntries(Object.entries(detail.value.assets || {}).map(([k, v]) => [assetLabels.value[k] || k, v]));
+  return Object.entries(src).map(([k, v]) => [k, String(v)]);
 });
 const showRaw = computed(() => {
   const d = detail.value;
@@ -107,7 +110,7 @@ async function submitOrder() {
     try {
       payOrder.value = await api(`/pay/orders/${d.pay_order}`);
     } catch {
-      payOrder.value = { order_no: d.pay_order, subject: `自营订单 ${d.order_no}`, amount: d.total, expire_at: Date.now() + 30 * 60_000 };
+      payOrder.value = { order_no: d.pay_order, subject: `安全交易订单 ${d.order_no}`, amount: d.total, expire_at: Date.now() + 30 * 60_000 };
     }
   } catch (e) {
     toast.error(e.message);
@@ -138,16 +141,16 @@ onMounted(async () => {
 <template>
   <main class="container page">
     <div class="row mb16" style="gap:6px; color:var(--text2); font-size:13px">
-      <RouterLink to="/self" style="color:var(--primary)">自营市场</RouterLink>
+      <RouterLink to="/self" style="color:var(--primary)">安全交易市场</RouterLink>
       <span>/</span>
-      <span>自营商品详情</span>
+      <span>商品详情</span>
     </div>
 
     <div v-if="loading" class="loading-box"><div class="spinner"></div>加载中…</div>
 
     <div v-else-if="failed || !detail" class="card">
       <EmptyState :text="errorMsg || '商品不存在或已下架'">
-        <RouterLink to="/self"><button class="btn btn-primary btn-sm">返回自营市场</button></RouterLink>
+        <RouterLink to="/self"><button class="btn btn-primary btn-sm">返回安全交易市场</button></RouterLink>
       </EmptyState>
     </div>
 
@@ -156,7 +159,7 @@ onMounted(async () => {
         <!-- 基本信息与价格 -->
         <div class="card card-pad">
           <div class="row wrap" style="gap:6px; margin-bottom:10px">
-            <span class="badge badge-primary">平台自营 · 担保交易</span>
+            <span class="badge badge-primary">卖家上架 · 平台担保</span>
             <span class="badge">{{ detail.game_name }}</span>
             <span class="badge">{{ detail.server_name }}</span>
             <span v-if="detail.channel" class="badge">{{ detail.channel }}</span>
@@ -172,9 +175,15 @@ onMounted(async () => {
             <span class="price-current">{{ fmtPrice(detail.price) }}</span>
             <span v-if="detail.valuation" class="muted small">AI 估值区间 {{ fmtPrice(detail.valuation.low) }} - {{ fmtPrice(detail.valuation.high) }}</span>
           </div>
-          <div class="price-lowest mt8">
-            卖家：<b>{{ detail.seller_name || '—' }}</b>
-            <span v-if="detail.listed_at" style="margin-left:12px">上架于 {{ fmtDateTime(detail.listed_at) }}</span>
+          <div class="price-lowest mt8" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px">
+            <span>卖家：<b>{{ detail.seller_name || '—' }}</b></span>
+            <template v-if="detail.seller_credit">
+              <span v-if="detail.seller_credit.credit_grade" class="badge" :style="{ color: GRADE_COLOR[detail.seller_credit.credit_grade] || 'var(--text2)' }">信用 {{ detail.seller_credit.credit_grade }}</span>
+              <span v-if="detail.seller_credit.alipay_credit_score" class="badge">芝麻信用 {{ detail.seller_credit.alipay_credit_score }}</span>
+              <span v-if="detail.seller_credit.wechat_credit_score" class="badge">微信支付分 {{ detail.seller_credit.wechat_credit_score }}</span>
+              <span class="small" :style="{ color: detail.seller_credit.online ? 'var(--success)' : 'var(--text2)' }">{{ detail.seller_credit.online ? '● 当前在线' : '○ ' + detail.seller_credit.last_active_text }}</span>
+            </template>
+            <span v-if="detail.listed_at" class="muted small">上架于 {{ fmtDateTime(detail.listed_at) }}</span>
           </div>
         </div>
 

@@ -68,6 +68,8 @@ r.post('/wallet/withdraw', authRequired, (req, res) => {
   const min = getSettingNum('withdraw_min', 0);
   if (amount < min) return res.json({ ok: false, error: `单笔最低提现金额 ¥${min.toFixed(2)}` });
 
+  // 冻结语义：wallets.frozen 与 balance 互斥（冻结时已从 balance 划出），
+  // 故仅校验 balance 即天然排除维权/保证金冻结资金，冻结款不可提现
   const w = getWallet(req.user.id);
   if (w.balance < amount) return res.json({ ok: false, error: '可用余额不足' });
 

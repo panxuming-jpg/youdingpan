@@ -114,3 +114,56 @@ export function fmtDateTime(ts) {
 export function fmtDate(ts) {
   return fmtDateTime(ts).slice(0, 10);
 }
+
+// ---------- 追账号维权（PRD 模块 F）：状态中文映射与颜色徽章，统一常量表 ----------
+export const RIGHTS_STATUS = {
+  pending_verify: { label: '待平台核验', badge: 'badge-warning', hint: '平台正在核验交易存证与自证材料，一般 72 小时内出结果' },
+  filed: { label: '核验成立·已立案', badge: 'badge-primary', hint: '证据核验成立，卖家等额资金已冻结，可生成起诉/报案文书' },
+  rejected: { label: '核验未通过', badge: 'badge-danger', hint: '证据核验未通过，可补充证据后重新发起维权' },
+  docs_ready: { label: '文书已生成', badge: 'badge-primary', hint: '文书已生成，请打印签署后递交法院/派出所并回填进度' },
+  submitted: { label: '已递交', badge: 'badge-warning', hint: '已递交司法机关，办理进展请及时回填' },
+  in_progress: { label: '办理中', badge: 'badge-primary', hint: '司法程序办理中，结案后请回填结果以便解除卖家冻结' },
+  closed_done: { label: '已结案', badge: 'badge-success', hint: '维权案已结案，卖家冻结资金已按规则处理' },
+  closed: { label: '已关闭', badge: 'badge', hint: '维权案已关闭（撤销或流程终止）' },
+};
+
+export function rightsStatus(s) {
+  return RIGHTS_STATUS[s] || { label: s || '-', badge: 'badge', hint: '' };
+}
+
+export const RIGHTS_CLAIM_TYPES = [
+  { key: 'civil', label: '民事起诉' },
+  { key: 'criminal', label: '刑事报案' },
+  { key: 'compensation', label: '先走包赔' },
+];
+
+export function claimTypeLabel(k) {
+  return RIGHTS_CLAIM_TYPES.find(c => c.key === k)?.label || k;
+}
+
+export const RIGHTS_SCENARIOS = ['实名信息被改', '绑定手机/邮箱被换', '原卖家通过客服申诉找回', '密码被改', '其他'];
+
+export const RIGHTS_RESULTS = ['获赔', '胜诉', '和解', '败诉', '不予立案'];
+
+export const RIGHTS_EVENT_ACTOR = { buyer: '买家', seller: '卖家', admin: '运营', system: '系统' };
+
+export const RIGHTS_EVENT_TYPE = {
+  created: '提交申请', verified: '核验成立', rejected: '核验驳回', evidence: '补充证据',
+  doc_generated: '生成文书', progress: '进度回填', cancelled: '撤销维权',
+  cert_request: '申请存证证明', cert_issued: '签发存证证明', unfrozen: '解除冻结',
+};
+
+export const RIGHTS_DOC_KIND = { complaint: '民事起诉状', report_pack: '报案材料包', cert: '交易存证证明' };
+
+/** 在新窗口渲染文书 HTML（附打印按钮）；弹窗被拦截时返回 false */
+export function openDocWindow(html) {
+  const w = window.open('', '_blank');
+  if (!w) return false;
+  w.document.write(html +
+    '<div style="position:fixed;bottom:18px;right:18px;z-index:9">' +
+    '<button onclick="window.print()" style="padding:10px 22px;border:none;border-radius:8px;' +
+    'background:#ff6a00;color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(255,106,0,.4)">' +
+    '打印 / 另存为 PDF</button></div>');
+  w.document.close();
+  return true;
+}

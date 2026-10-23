@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { api, getToken } from '../api.js';
 import { fmtPrice, fmtDateTime } from '../utils.js';
 import { store } from '../store.js';
@@ -10,6 +10,7 @@ import Modal from '../components/Modal.vue';
 import PayModal from '../components/PayModal.vue';
 
 const route = useRoute();
+const router = useRouter();
 const id = Number(route.params.id);
 
 const data = ref(null);
@@ -130,7 +131,7 @@ async function openPay() {
   }
   payOrder.value = {
     order_no: data.value.order_no,
-    subject: `自营订单 ${data.value.order_no}（${data.value.listing?.account_mask || ''}）担保支付`,
+    subject: `安全交易订单 ${data.value.order_no}（${data.value.listing?.account_mask || ''}）托管支付`,
     amount: data.value.total,
     expire_at: payDeadline.value || Date.now() + fees.value.pay_timeout_min * 60_000,
   };
@@ -558,6 +559,7 @@ onUnmounted(() => {
               <dt>鉴号服务费</dt><dd>{{ data.appraisal_fee > 0 ? fmtPrice(data.appraisal_fee) : '未加购' }}</dd>
               <dt>实付总额</dt><dd style="font-weight:800; color:var(--danger)">{{ fmtPrice(data.total) }}</dd>
               <dt>卖家实名</dt><dd>{{ data.seller_real_name || '已实名认证' }}</dd>
+              <dt>卖家信用</dt><dd>{{ data.seller?.credit_grade ? `信用 ${data.seller.credit_grade}` : '未评级' }} · {{ data.seller?.online ? '当前在线' : (data.seller?.last_active_text || '离线') }}</dd>
               <dt>买家实名</dt><dd>{{ isBuyer ? '已实名认证（本人）' : '已实名认证' }}</dd>
             </div>
           </div>
@@ -590,6 +592,22 @@ onUnmounted(() => {
         </div>
         <div v-if="status === 'compensated_closed'" class="banner-danger mt16">
           找回理赔成立：平台已向买家先行赔付，并冻结卖家钱包等额资金向卖家追偿（15 日）。
+        </div>
+      </div>
+
+      <!-- ===== 追账号维权入口（买家 + 已完成订单） ===== -->
+      <div v-if="isBuyer && status === 'completed'" class="card card-pad mb16" style="border-color:var(--primary); background:var(--primary-weak)">
+        <div class="row between wrap" style="gap:12px">
+          <div>
+            <b>账号被找回？</b>
+            <div class="muted small mt8">
+              若交易完成后账号被卖家或第三方找回（实名被改、绑定被换、无法登录等），可发起「追账号维权」：
+              平台核验交易存证后协助生成民事起诉状与报案材料包，并冻结卖家等额资金配合维权。
+            </div>
+          </div>
+          <button class="btn btn-primary btn-lg" style="flex:none" @click="router.push(`/rights/apply?order_id=${id}`)">
+            发起追账号维权
+          </button>
         </div>
       </div>
 

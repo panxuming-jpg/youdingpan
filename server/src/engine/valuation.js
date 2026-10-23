@@ -6,6 +6,7 @@
  * 无 LLM Key 或调用失败 → 规则兜底（样本中位数/挂牌价分位数）
  */
 import { db, parseJSON } from '../db.js';
+import { assetsZh } from '../asset_templates.js';
 import { chat, parseLLMJson, llmEnabled } from '../llm.js';
 
 const DAY = 86_400_000;
@@ -76,7 +77,7 @@ export async function valueListing(listingId, { force = false } = {}) {
     const prompt = `你是游戏账号交易估值模型。请基于以下数据给出账号估值区间（人民币元），只输出 JSON：{"low":number,"high":number,"mid":number,"factors":[{"name":string,"desc":string}],"note":string}。
 要求：factors 列 3-5 个主要影响因子；不得引入未验证外部信息；区间取整到元。
 【商品】游戏：${game?.name || l.game_id}；区服/渠道：${l.server_name}/${l.channel}；挂牌价：¥${l.price}
-【结构化资产】${JSON.stringify(assets)}
+【结构化资产】${JSON.stringify(assetsZh(assets, game?.name || ''))}
 【描述】${(l.description || '').slice(0, 200)}
 【本平台同游戏成交样本】${samples.deals.length} 笔：${samples.deals.slice(0, 20).join(', ') || '无'}
 【聚合平台同款挂牌价】${samples.listings.length} 件，P15=${quantile(samples.listings, 0.15)} 中位=${quantile(samples.listings, 0.5)} P85=${quantile(samples.listings, 0.85)}`;
@@ -123,7 +124,7 @@ export async function explainListing(listingId) {
   if (llmEnabled) {
     const out = await chat([
       { role: 'system', content: '你是游戏账号估值解读助手。仅基于给定数据用中文写不超过 200 字的通俗解读，不构成价格承诺，不引入外部信息。' },
-      { role: 'user', content: `商品：${game?.name} ${l.server_name}，资产 ${JSON.stringify(assets)}，挂牌 ¥${l.price}，估值区间 ¥${v.low}-¥${v.high}（中点 ¥${v.mid}），性价比分 ${v.score}，置信度 ${v.confidence}，依据：${v.basis.map(b => b.name).join('、')}。` },
+      { role: 'user', content: `商品：${game?.name} ${l.server_name}，资产 ${JSON.stringify(assetsZh(assets, game?.name || ''))}，挂牌 ¥${l.price}，估值区间 ¥${v.low}-¥${v.high}（中点 ¥${v.mid}），性价比分 ${v.score}，置信度 ${v.confidence}，依据：${v.basis.map(b => b.name).join('、')}。` },
     ], { maxTokens: 400 });
     if (out) return { text: out.trim().slice(0, 300), source: 'llm' };
   }

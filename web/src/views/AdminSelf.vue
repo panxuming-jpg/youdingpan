@@ -3,9 +3,10 @@ import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { toast } from '../toast.js';
-import { fmtPrice, fmtDateTime } from '../utils.js';
+import { fmtPrice, fmtDateTime, rightsStatus, claimTypeLabel, RIGHTS_DOC_KIND, openDocWindow } from '../utils.js';
 import Modal from '../components/Modal.vue';
 import EmptyState from '../components/EmptyState.vue';
+import Pagination from '../components/Pagination.vue';
 
 const tab = ref('listings');
 const loading = ref(false);
@@ -123,6 +124,203 @@ const refundOrders = computed(() => {
   return refunds.value.filter(o => ['refunding', 'seller_appealed'].includes(o.status));
 });
 
+// ---------- 维权案管理（模块 F） ----------
+const rights = ref([]);
+const rightsStatusFilter = ref('pending_verify');
+async function loadRights() {
+  try {
+    rights.value = await api('/admin/rights', { query: { status: rightsStatusFilter.value } });
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+const rightsDetail = ref(null); // GET /rights/:id 展开区
+const rightsDetailLoading = ref(0);
+async function toggleRightsRow(row) {
+  if (rightsDetail.value?.case?.id === row.id) { rightsDetail.value = null; return; }
+  rightsDetailLoading.value = row.id;
+  try {
+    rightsDetail.value = await api(`/rights/${row.id}`);
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    rightsDetailLoading.value = 0;
+  }
+}
+
+async function viewRightsDoc(caseId, doc) {
+  try {
+    const d = await api(`/rights/${caseId}/documents/${doc.id}`);
+    if (!openDocWindow(d.html)) toast.error('新窗口被浏览器拦截，请允许弹窗后重试');
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+const verifyModal = ref(null); // { case, action: 'pass' | 'reject' }
+const verifyForm = ref({ freeze_amount: '', reject_reason: '' });
+const verifySubmitting = ref(false);
+function openVerify(row, action) {
+  verifyModal.value = { case: row, action };
+  verifyForm.value = { freeze_amount: action === 'pass' ? String(row.loss) : '', reject_reason: '' };
+}
+async function submitVerify() {
+  const m = verifyModal.value;
+  if (!m) return;
+  if (m.action === 'reject' && !verifyForm.value.reject_reason.trim()) return toast.error('驳回必须填写理由');
+  verifySubmitting.value = true;
+  try {
+    const body = m.action === 'pass'
+      ? { pass: true, freeze_amount: Number(verifyForm.value.freeze_amount) > 0 ? Number(verifyForm.value.freeze_amount) : undefined }
+      : { pass: false, reject_reason: verifyForm.value.reject_reason.trim() };
+    await api(`/admin/rights/${m.case.id}/verify`, { method: 'POST', body });
+    toast.success(m.action === 'pass' ? '核验成立：已立案并冻结卖家资金' : '核验驳回，已通知买家');
+    verifyModal.value = null;
+    await loadRights();
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    verifySubmitting.value = false;
+  }
+}
+
+async function certIssue(row) {
+  try {
+    const d = await api(`/admin/rights/${row.id}/cert-issue`, { method: 'POST', body: {} });
+    toast.success(`《交易存证证明》已签发（文书 #${d.doc_id}），买家可在维权案详情查看下载`);
+    if (rightsDetail.value?.case?.id === row.id) await toggleRightsRow(row); // 收起再展开刷新文书列表
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+async function unfreezeCase(row) {
+  if (!confirm(`确认解除维权案 #${row.id} 的卖家钱包冻结 ${fmtPrice(row.freeze_amount)}？`)) return;
+  try {
+    const d = await api(`/admin/rights/${row.id}/unfreeze`, { method: 'POST' });
+    toast.success(`已解除冻结 ${fmtPrice(d.unfrozen)}`);
+    await loadRights();
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+
+// ---------- 派出所数据管理（模块 G） ----------
+const policeList = ref([]);
+const policeTotal = ref(0);
+const policePage = ref(1);
+const policeSize = 20;
+const policeKeyword = ref('');
+const policeProvince = ref('');
+const policeProvinces = ref([]);
+const feedbacks = ref([]);
+
+// 高德 Web 服务 Key（实时补充查询用；存 settings，即时生效）
+const amapKey = ref('');
+const amapEnabled = ref(false);
+const amapSaving = ref(false);
+async function loadAmapStatus() {
+  try { amapEnabled.value = (await api('/police/realtime-status')).enabled; } catch { /* 静默 */ }
+}
+async function saveAmapKey() {
+  amapSaving.value = true;
+  try {
+    const d = await api('/admin/police/amap-key', { method: 'POST', body: { key: amapKey.value } });
+    amapEnabled.value = d.enabled;
+    toast.success(d.enabled ? '高德 Key 已保存，实时补充查询已启用' : '高德 Key 已清空');
+    amapKey.value = '';
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    amapSaving.value = false;
+  }
+}
+
+async function loadPolice() {
+  try {
+    const d = await api('/admin/police', {
+      query: { page: policePage.value, size: policeSize, keyword: policeKeyword.value, province: policeProvince.value },
+    });
+    policeList.value = d.list;
+    policeTotal.value = d.total;
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+async function loadFeedbacks() {
+  try {
+    feedbacks.value = await api('/admin/police/feedbacks');
+  } catch (e) {
+    toast.error(e.message);
+  }
+}
+async function loadPoliceTab() {
+  if (!policeProvinces.value.length) {
+    try {
+      const tree = await api('/police/districts');
+      policeProvinces.value = tree.map(t => t.province);
+    } catch { /* 静默 */ }
+  }
+  await Promise.all([loadPolice(), loadFeedbacks(), loadAmapStatus()]);
+}
+function searchPolice() {
+  policePage.value = 1;
+  loadPolice();
+}
+
+const policeEdit = ref(null);
+const policeSaving = ref(false);
+const EMPTY_POLICE = {
+  name: '', province: '', city: '', district: '', address: '', phone: '',
+  officer: '', officer_badge: '', jurisdiction: '', hours: '', lng: '', lat: '', source: '管理端录入',
+};
+function openPoliceEdit(s) {
+  policeEdit.value = s ? { ...s, lng: s.lng ?? '', lat: s.lat ?? '' } : { ...EMPTY_POLICE };
+}
+async function savePolice() {
+  const f = policeEdit.value;
+  if (!f) return;
+  if (!f.name.trim() || !f.province.trim()) return toast.error('名称与省份为必填');
+  policeSaving.value = true;
+  try {
+    const body = { ...f, name: f.name.trim(), province: f.province.trim() };
+    if (body.lng === '' || body.lng == null) body.lng = null;
+    if (body.lat === '' || body.lat == null) body.lat = null;
+    await api('/admin/police', { method: 'POST', body });
+    toast.success(f.id ? '派出所信息已更新' : '派出所已新建');
+    policeEdit.value = null;
+    await loadPolice();
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    policeSaving.value = false;
+  }
+}
+
+const resolveModal = ref(null);
+const resolveText = ref('');
+const resolveSubmitting = ref(false);
+function openResolve(f) {
+  resolveModal.value = f;
+  resolveText.value = '';
+}
+async function submitResolve() {
+  resolveSubmitting.value = true;
+  try {
+    await api(`/admin/police/feedbacks/${resolveModal.value.id}/resolve`, {
+      method: 'POST', body: { fixed_text: resolveText.value.trim() },
+    });
+    toast.success('已标记核实修正');
+    resolveModal.value = null;
+    await loadFeedbacks();
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    resolveSubmitting.value = false;
+  }
+}
+
 const loaders = {
   listings: loadListings,
   proofs: loadProofs,
@@ -131,6 +329,8 @@ const loaders = {
   pool: loadPool,
   experts: loadExperts,
   refunds: loadRefunds,
+  rights: loadRights,
+  police: loadPoliceTab,
 };
 
 async function loadTab(key) {
@@ -324,15 +524,15 @@ function valuationText(l) {
     </template>
 
     <template v-else-if="!isAdmin">
-      <div class="page-title">自营交易管理</div>
+      <div class="page-title">安全交易管理</div>
       <div class="card">
         <EmptyState icon="🔒" text="无管理员权限，请使用管理员账号登录后访问" />
       </div>
     </template>
 
     <template v-else>
-      <div class="page-title">自营交易管理</div>
-      <div class="page-sub">自营商品审核、卖家资质、找回包赔理赔裁决、退款申诉裁决、风险事件与赔付资金池</div>
+      <div class="page-title">安全交易管理</div>
+      <div class="page-sub">卖家商品审核、卖家资质、找回包赔理赔裁决、退款申诉裁决、风险事件与赔付资金池</div>
 
       <div class="row between mb16" style="align-items:flex-end">
         <div class="tabs" style="flex-wrap:wrap">
@@ -345,6 +545,8 @@ function valuationText(l) {
               { key: 'pool', label: '赔付资金池' },
               { key: 'experts', label: '鉴号专家审核' },
               { key: 'refunds', label: '退款裁决' },
+              { key: 'rights', label: '维权案' },
+              { key: 'police', label: '派出所数据' },
             ]"
             :key="t.key"
             class="tab"
@@ -635,7 +837,7 @@ function valuationText(l) {
               <option value="open">退款相关（全部）</option>
               <option value="seller_appealed">申诉待裁决</option>
               <option value="refunding">退款申请中</option>
-              <option value="all">全部自营订单</option>
+              <option value="all">全部担保订单</option>
             </select>
             <span class="muted small">共 {{ refundOrders.length }} 单 · 仅「申诉待裁决」可裁决：同意退款=申诉失败，全额退款买家；驳回退款=申诉成立，交接继续</span>
           </div>
@@ -676,6 +878,176 @@ function valuationText(l) {
               </tr>
             </tbody>
           </table>
+        </div>
+      </template>
+
+      <!-- 维权案管理 -->
+      <template v-else-if="tab === 'rights'">
+        <div class="card card-pad mb16">
+          <div class="row wrap" style="gap:10px">
+            <span class="muted small">状态筛选</span>
+            <select v-model="rightsStatusFilter" class="select" style="width:180px" @change="loadTab('rights')">
+              <option value="pending_verify">待平台核验</option>
+              <option value="filed">核验成立·已立案</option>
+              <option value="rejected">核验未通过</option>
+              <option value="docs_ready">文书已生成</option>
+              <option value="submitted">已递交</option>
+              <option value="in_progress">办理中</option>
+              <option value="closed_done">已结案</option>
+              <option value="closed">已关闭</option>
+              <option value="">全部</option>
+            </select>
+            <span class="muted small">共 {{ rights.length }} 案 · 点击行可展开查看证据文书列表；核验成立将冻结卖家钱包等额资金</span>
+          </div>
+        </div>
+        <div class="card table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>案号</th><th>订单</th><th>买家</th><th>卖家</th><th>主张损失</th><th>冻结金额</th>
+                <th>状态</th><th>维权诉求</th><th>申请时间</th><th style="min-width:190px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="row in rights" :key="row.id">
+                <tr style="cursor:pointer" @click="toggleRightsRow(row)">
+                  <td class="muted">#{{ row.id }}</td>
+                  <td><b>{{ row.order_summary?.order_no || `订单#${row.order_id}` }}</b><div class="muted small">{{ row.order_summary?.game_name || '-' }}</div></td>
+                  <td class="muted">UID #{{ row.buyer_id }}</td>
+                  <td class="muted">UID #{{ row.seller_id }}</td>
+                  <td>{{ fmtPrice(row.loss) }}</td>
+                  <td><span v-if="row.freeze_amount > 0" class="badge badge-danger">{{ fmtPrice(row.freeze_amount) }}</span><span v-else class="muted">—</span></td>
+                  <td>
+                    <span class="badge" :class="rightsStatus(row.status).badge">{{ rightsStatus(row.status).label }}</span>
+                    <div v-if="row.status === 'rejected' && row.reject_reason" class="muted small" style="max-width:150px">{{ row.reject_reason }}</div>
+                    <div v-else-if="row.case_no" class="muted small">案号 {{ row.case_no }}</div>
+                  </td>
+                  <td>
+                    <span v-for="ct in row.claim_types" :key="ct" class="badge badge-primary" style="margin-right:4px">{{ claimTypeLabel(ct) }}</span>
+                  </td>
+                  <td class="muted">{{ fmtDateTime(row.created_at) }}</td>
+                  <td>
+                    <div class="row wrap" style="gap:6px">
+                      <template v-if="row.status === 'pending_verify'">
+                        <button class="btn btn-primary btn-sm" @click.stop="openVerify(row, 'pass')">核验成立</button>
+                        <button class="btn btn-danger-ghost btn-sm" @click.stop="openVerify(row, 'reject')">核验驳回</button>
+                      </template>
+                      <template v-else-if="['filed', 'docs_ready', 'submitted', 'in_progress'].includes(row.status)">
+                        <button class="btn btn-ghost btn-sm" @click.stop="certIssue(row)">签发存证证明</button>
+                      </template>
+                      <button v-if="row.freeze_amount > 0" class="btn btn-danger-ghost btn-sm" @click.stop="unfreezeCase(row)">解除冻结</button>
+                      <span v-if="['closed', 'closed_done', 'rejected'].includes(row.status)" class="muted small">—</span>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="rightsDetail?.case?.id === row.id">
+                  <td colspan="10" style="background:var(--bg,#f7f8fc)">
+                    <div v-if="rightsDetailLoading === row.id" class="muted small">文书加载中…</div>
+                    <template v-else>
+                      <div class="card-title" style="margin-bottom:6px">维权案 #{{ row.id }} · 证据文书（{{ (rightsDetail.documents || []).length }} 份）</div>
+                      <div v-if="rightsDetail.documents?.length" class="row wrap" style="gap:8px">
+                        <div v-for="doc in rightsDetail.documents" :key="doc.id" class="card card-pad" style="padding:8px 12px">
+                          <b>{{ RIGHTS_DOC_KIND[doc.kind] || doc.title }}</b>
+                          <span class="muted small"> · {{ fmtDateTime(doc.created_at) }}</span>
+                          <button class="btn btn-ghost btn-sm" style="margin-left:8px" @click.stop="viewRightsDoc(row.id, doc)">查看/打印</button>
+                        </div>
+                      </div>
+                      <span v-else class="muted small">该案暂无已生成文书</span>
+                      <div class="muted small" style="margin-top:8px">
+                        证据包 {{ (rightsDetail.evidence || []).length }} 项 · 事件 {{ (rightsDetail.events || []).length }} 条 ·
+                        找回时间 {{ fmtDateTime(rightsDetail.case.recover_at) }} · 场景：{{ rightsDetail.case.scenario || '—' }}
+                      </div>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+              <tr v-if="!rights.length">
+                <td colspan="10"><EmptyState text="当前筛选下暂无维权案" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- 派出所数据管理 -->
+      <template v-else-if="tab === 'police'">
+        <div class="card card-pad mb16">
+          <div class="row wrap" style="gap:10px; align-items:center">
+            <span class="small"><b>实时补充查询（高德）</b> 当前状态：<span v-if="amapEnabled" class="badge badge-success">已启用</span><span v-else class="badge badge-warning">未启用</span></span>
+            <input v-model="amapKey" class="input" style="width:260px" maxlength="64" placeholder="粘贴高德 Web 服务 Key（留空并保存=关闭）" />
+            <button class="btn btn-primary btn-sm" :disabled="amapSaving" @click="saveAmapKey">{{ amapSaving ? '保存中…' : '保存 Key' }}</button>
+            <span class="muted small">在 <a href="https://console.amap.com/dev/key/app" target="_blank" rel="noopener">高德开放平台</a> 免费申请，服务平台选「Web服务」；结果仅展示不落库</span>
+          </div>
+        </div>
+        <div class="card card-pad mb16">
+          <div class="row wrap" style="gap:10px; align-items:center">
+            <input v-model="policeKeyword" class="input" style="width:200px" placeholder="按名称/地址搜索" @keyup.enter="searchPolice" />
+            <select v-model="policeProvince" class="select" style="width:140px" @change="searchPolice">
+              <option value="">全部省份</option>
+              <option v-for="p in policeProvinces" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" @click="searchPolice">检索</button>
+            <span class="muted small">共 {{ policeTotal }} 条 · 演示数据以官方公布为准</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto" @click="openPoliceEdit(null)">＋ 新建派出所</button>
+          </div>
+        </div>
+        <div class="card table-wrap mb16">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th><th>名称</th><th>省 / 市 / 区</th><th>地址</th><th>电话</th>
+                <th>工作时间</th><th>来源</th><th>时效</th><th style="width:90px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in policeList" :key="s.id">
+                <td class="muted">#{{ s.id }}</td>
+                <td><b>{{ s.name }}</b><div v-if="s.officer" class="muted small">民警 {{ s.officer }}{{ s.officer_badge ? `（${s.officer_badge}）` : '' }}</div></td>
+                <td class="muted">{{ s.province }} / {{ s.city || '-' }} / {{ s.district || '-' }}</td>
+                <td class="muted" style="max-width:220px">{{ s.address || '-' }}</td>
+                <td class="muted">{{ s.phone || '-' }}</td>
+                <td class="muted small">{{ s.hours || '-' }}</td>
+                <td class="muted small">{{ s.source || '-' }}</td>
+                <td><span v-if="s.stale" class="badge badge-warning">待核实</span><span v-else class="badge badge-success">较新</span></td>
+                <td><button class="btn btn-ghost btn-sm" @click="openPoliceEdit(s)">编辑</button></td>
+              </tr>
+              <tr v-if="!policeList.length">
+                <td colspan="9"><EmptyState text="暂无派出所数据" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Pagination :page="policePage" :total="policeTotal" :size="policeSize" @change="p => { policePage = p; loadPolice(); }" />
+
+        <div class="card card-pad">
+          <div class="card-title" style="margin-bottom:8px">用户纠错反馈（{{ feedbacks.length }} 条）</div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr><th>ID</th><th>派出所</th><th>纠错内容</th><th>状态</th><th>提交时间</th><th style="width:120px">操作</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in feedbacks" :key="f.id">
+                  <td class="muted">#{{ f.id }}</td>
+                  <td>{{ f.station_name || `#${f.station_id}` }}</td>
+                  <td class="muted" style="max-width:280px">{{ f.issue }}</td>
+                  <td>
+                    <span v-if="f.status === 'resolved'" class="badge badge-success">已核实修正</span>
+                    <span v-else class="badge badge-warning">待处理</span>
+                    <div v-if="f.fix_note" class="muted small">{{ f.fix_note }}</div>
+                  </td>
+                  <td class="muted">{{ fmtDateTime(f.created_at) }}</td>
+                  <td>
+                    <button v-if="f.status !== 'resolved'" class="btn btn-primary btn-sm" @click="openResolve(f)">已核实修正</button>
+                    <span v-else class="muted small">—</span>
+                  </td>
+                </tr>
+                <tr v-if="!feedbacks.length">
+                  <td colspan="6"><EmptyState text="暂无纠错反馈" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </template>
 
@@ -743,6 +1115,125 @@ function valuationText(l) {
             <button class="btn btn-primary" @click="openReview('claim', claimDetail, 'approve'); claimDetail = null">通过赔付</button>
           </template>
           <button class="btn btn-ghost" @click="claimDetail = null">关闭</button>
+        </template>
+      </Modal>
+
+      <!-- 维权案核验弹窗 -->
+      <Modal v-if="verifyModal" :title="verifyModal.action === 'pass' ? `核验成立：立案并冻结卖家资金（维权案 #${verifyModal.case.id}）` : `核验驳回（维权案 #${verifyModal.case.id}）`" @close="verifyModal = null">
+        <div class="muted small" style="margin-bottom:12px">
+          订单 {{ verifyModal.case.order_summary?.order_no || `#${verifyModal.case.order_id}` }} · 买家主张损失 {{ fmtPrice(verifyModal.case.loss) }} · 场景：{{ verifyModal.case.scenario || '—' }}
+        </div>
+        <div v-if="verifyModal.action === 'pass'" class="form-item">
+          <label class="form-label">冻结金额（元）</label>
+          <input v-model="verifyForm.freeze_amount" class="input" type="number" min="0" step="0.01" />
+          <div class="form-hint">默认按买家主张损失冻结卖家钱包等额资金；卖家余额不足时按可用余额部分冻结，结案后自动解除</div>
+        </div>
+        <div v-else class="form-item">
+          <label class="form-label">驳回理由 <span class="req">*</span></label>
+          <textarea v-model="verifyForm.reject_reason" class="textarea" placeholder="如：交接日志显示买家已完成换绑且可正常登录，暂无被找回证据"></textarea>
+          <div class="form-hint">驳回理由将通知买家，买家可补充证据后重新申请</div>
+        </div>
+        <template #foot>
+          <button class="btn btn-ghost" :disabled="verifySubmitting" @click="verifyModal = null">取消</button>
+          <button
+            class="btn"
+            :class="verifyModal.action === 'pass' ? 'btn-primary' : 'btn-danger'"
+            :disabled="verifySubmitting"
+            @click="submitVerify"
+          >{{ verifySubmitting ? '提交中…' : verifyModal.action === 'pass' ? '确认立案并冻结' : '确认驳回' }}</button>
+        </template>
+      </Modal>
+
+      <!-- 派出所新建/编辑弹窗 -->
+      <Modal v-if="policeEdit" :title="policeEdit.id ? `编辑派出所 #${policeEdit.id}` : '新建派出所'" wide @close="policeEdit = null">
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">名称 <span class="req">*</span></label>
+            <input v-model="policeEdit.name" class="input" placeholder="如：朝阳区公安分局三里屯派出所" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">省份 <span class="req">*</span></label>
+            <input v-model="policeEdit.province" class="input" placeholder="如：北京市" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">城市</label>
+            <input v-model="policeEdit.city" class="input" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">区县</label>
+            <input v-model="policeEdit.district" class="input" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">地址</label>
+            <input v-model="policeEdit.address" class="input" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">电话</label>
+            <input v-model="policeEdit.phone" class="input" placeholder="报警/值班电话" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">社区民警</label>
+            <input v-model="policeEdit.officer" class="input" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">警号</label>
+            <input v-model="policeEdit.officer_badge" class="input" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">管辖范围</label>
+            <input v-model="policeEdit.jurisdiction" class="input" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">工作时间</label>
+            <input v-model="policeEdit.hours" class="input" placeholder="如：全天 / 工作日 9:00-17:00" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">经度（可选）</label>
+            <input v-model="policeEdit.lng" class="input" type="number" step="0.000001" />
+          </div>
+          <div class="form-item">
+            <label class="form-label">纬度（可选）</label>
+            <input v-model="policeEdit.lat" class="input" type="number" step="0.000001" />
+          </div>
+        </div>
+        <div class="form-item">
+          <label class="form-label">数据来源</label>
+          <input v-model="policeEdit.source" class="input" />
+          <div class="form-hint">保存后该条数据的「待核实」标记将清除</div>
+        </div>
+        <template #foot>
+          <button class="btn btn-ghost" :disabled="policeSaving" @click="policeEdit = null">取消</button>
+          <button class="btn btn-primary" :disabled="policeSaving" @click="savePolice">{{ policeSaving ? '保存中…' : '保存' }}</button>
+        </template>
+      </Modal>
+
+      <!-- 纠错反馈核实修正弹窗 -->
+      <Modal v-if="resolveModal" :title="`处理纠错反馈 #${resolveModal.id}`" @close="resolveModal = null">
+        <div class="muted small" style="margin-bottom:12px">
+          派出所：{{ resolveModal.station_name || `#${resolveModal.station_id}` }} · 提交于 {{ fmtDateTime(resolveModal.created_at) }}
+        </div>
+        <div class="form-item">
+          <div class="card-title" style="margin-bottom:6px">用户反馈内容</div>
+          <div class="pre-wrap">{{ resolveModal.issue }}</div>
+        </div>
+        <div class="form-item">
+          <label class="form-label">修正备注（可选）</label>
+          <textarea v-model="resolveText" class="textarea" placeholder="如：电话已更新为 010-xxxx；核实无误无需修改"></textarea>
+          <div class="form-hint">确认后将标记为「已核实修正」，并刷新该派出所数据时效以消除「待核实」标记</div>
+        </div>
+        <template #foot>
+          <button class="btn btn-ghost" :disabled="resolveSubmitting" @click="resolveModal = null">取消</button>
+          <button class="btn btn-primary" :disabled="resolveSubmitting" @click="submitResolve">{{ resolveSubmitting ? '提交中…' : '确认已核实修正' }}</button>
         </template>
       </Modal>
     </template>

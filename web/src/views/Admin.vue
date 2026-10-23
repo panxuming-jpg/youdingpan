@@ -293,7 +293,7 @@ async function loadPayOrders() {
   }
 }
 
-// ---------- 担保交易 ----------
+// ---------- 安全交易 ----------
 const auctionOrders = ref([]);
 const aoStatus = ref('');
 
@@ -446,7 +446,7 @@ onMounted(() => {
       <button class="tab" :class="{ active: tab === 'anns' }" @click="switchTab('anns')">公告管理</button>
       <button class="tab" :class="{ active: tab === 'members' }" @click="switchTab('members')">会员管理</button>
       <button class="tab" :class="{ active: tab === 'payorders' }" @click="switchTab('payorders')">支付流水</button>
-      <button class="tab" :class="{ active: tab === 'auctionorders' }" @click="switchTab('auctionorders')">担保交易</button>
+      <button class="tab" :class="{ active: tab === 'auctionorders' }" @click="switchTab('auctionorders')">安全交易</button>
       <button class="tab" :class="{ active: tab === 'withdraws' }" @click="switchTab('withdraws')">提现审核</button>
       <button class="tab" :class="{ active: tab === 'fundlogs' }" @click="switchTab('fundlogs')">资金流水</button>
       <button class="tab" :class="{ active: tab === 'settings' }" @click="switchTab('settings')">系统设置</button>
@@ -798,7 +798,7 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- 担保交易 -->
+    <!-- 安全交易 -->
     <template v-else-if="tab === 'auctionorders'">
       <div class="card card-pad mb16">
         <div class="row wrap" style="gap:10px">
@@ -839,7 +839,7 @@ onMounted(() => {
               <td class="muted">{{ fmtDateTime(o.created_at) }}</td>
             </tr>
             <tr v-if="!auctionOrders.length">
-              <td colspan="9"><EmptyState text="暂无担保交易订单" /></td>
+              <td colspan="9"><EmptyState text="暂无安全交易订单" /></td>
             </tr>
           </tbody>
         </table>
@@ -959,7 +959,7 @@ onMounted(() => {
     <template v-else-if="tab === 'settings'">
       <div class="card card-pad">
         <div class="card-title">平台参数配置</div>
-        <div class="muted small" style="margin-bottom:14px">修改后即时生效，影响会员权益、免费限额、担保交易与提现规则</div>
+        <div class="muted small" style="margin-bottom:14px">修改后即时生效，影响会员权益、免费限额、安全交易与提现规则</div>
         <div v-for="s in settingsList" :key="s.key" class="form-item">
           <label class="form-label">{{ s.label }}</label>
           <select v-if="s.key === 'view_count_mode'" v-model="settingsEdit[s.key]" class="select" style="max-width:320px">

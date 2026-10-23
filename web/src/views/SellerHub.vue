@@ -376,6 +376,26 @@ function switchTab(k) {
   if (k === 'goods') loadGoods();
 }
 
+// ---------- 信用分绑定（支付宝/微信） ----------
+const creditForm = ref({ channel: 'alipay', score: '' });
+const creditBinding = ref(false);
+
+async function submitCreditBind() {
+  const s = Number(creditForm.value.score);
+  if (!Number.isFinite(s) || s < 350 || s > 950) return toast.error('信用分须在 350-950 之间');
+  creditBinding.value = true;
+  try {
+    const d = await api('/seller/credit-bind', { method: 'POST', body: { channel: creditForm.value.channel, score: s } });
+    toast.success(`已绑定${d.channel === 'alipay' ? '芝麻信用' : '微信支付分'} ${d.score} 分，综合信用等级：${d.credit_grade || '—'}`);
+    creditForm.value.score = '';
+    await loadStatus();
+  } catch (e) {
+    toast.error(e.message);
+  } finally {
+    creditBinding.value = false;
+  }
+}
+
 // ---------- 加载 ----------
 async function loadStatus() {
   statusLoading.value = true;
@@ -405,7 +425,7 @@ onUnmounted(stopValuationPoll);
 <template>
   <main class="container page">
     <div class="page-title">卖家中心</div>
-    <div class="page-sub">实名认证 → 提交归属凭证获得卖家资质 → 发布自营商品 → 管理在售商品</div>
+    <div class="page-sub">实名认证 → 提交归属凭证获得卖家资质 → 绑定信用分 → 上架账号（平台安全交易）→ 管理在售商品</div>
 
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'entry' }" @click="switchTab('entry')">卖家入驻</button>
@@ -518,6 +538,36 @@ onUnmounted(stopValuationPoll);
             </table>
           </div>
         </div>
+      </div>
+
+      <!-- 信用分绑定 -->
+      <div class="card card-pad mt16">
+        <div class="row between wrap" style="margin-bottom:10px">
+          <div class="card-title" style="margin:0">③ 信用分绑定（支付宝 / 微信）</div>
+          <span v-if="status?.credit_grade" class="badge badge-success">综合信用等级：{{ status.credit_grade }}</span>
+          <span v-else class="badge badge-warning">未绑定</span>
+        </div>
+        <p class="muted small mb16">绑定后买家可在商品卡片与详情页看到您的信用等级与渠道信用分，信用等级越高越易成交。演示环境模拟渠道授权回填（分数区间 350-950）。</p>
+        <dl class="kv-list mb16">
+          <dt>芝麻信用</dt><dd>{{ status?.alipay_credit_score ? `${status.alipay_credit_score} 分（已绑定）` : '未绑定' }}</dd>
+          <dt>微信支付分</dt><dd>{{ status?.wechat_credit_score ? `${status.wechat_credit_score} 分（已绑定）` : '未绑定' }}</dd>
+        </dl>
+        <div class="form-row">
+          <div class="form-item">
+            <label class="form-label">绑定渠道</label>
+            <select v-model="creditForm.channel" class="select">
+              <option value="alipay">支付宝 · 芝麻信用</option>
+              <option value="wechat">微信 · 微信支付分</option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label class="form-label">信用分（350-950）<span class="req">*</span></label>
+            <input v-model="creditForm.score" type="number" min="350" max="950" class="input" placeholder="例：780" />
+          </div>
+        </div>
+        <button class="btn btn-primary" :disabled="creditBinding" @click="submitCreditBind">
+          {{ creditBinding ? '授权中…' : '模拟授权并绑定' }}
+        </button>
       </div>
     </template>
 
@@ -727,7 +777,7 @@ onUnmounted(stopValuationPoll);
         </div>
       </div>
       <div v-else class="card">
-        <EmptyState text="还没有发布过自营商品，前往「发布商品」上传第一个账号吧" icon="🏪">
+        <EmptyState text="还没有上架过安全交易商品，前往「发布商品」上传第一个账号吧" icon="🏪">
           <button class="btn btn-primary" @click="switchTab('publish')">去发布</button>
         </EmptyState>
       </div>

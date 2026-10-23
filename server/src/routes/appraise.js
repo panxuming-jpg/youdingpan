@@ -3,6 +3,7 @@
  */
 import { Router } from 'express';
 import { db, parseJSON, getSettingNum, fundLog } from '../db.js';
+import { assetsZh } from '../asset_templates.js';
 import { authRequired, adminRequired } from '../middleware.js';
 import { notify } from '../engine/auction.js';
 import { getWallet, addBalance, freeze } from '../engine/auction.js';
@@ -42,7 +43,7 @@ router.get('/expert/pool', authRequired, (req, res) => {
   res.json({ ok: true, data: rows.map(a => ({
     id: a.id, listing_id: a.listing_id, order_id: a.order_id, game_name: a.game_name,
     server_name: a.server_name, price: a.price, fee: a.fee, paid_at: a.paid_at,
-    assets: a.listing_id ? parseJSON(db.prepare('SELECT assets_json FROM listings WHERE id=?').get(a.listing_id)?.assets_json, {}) : {},
+    assets: a.listing_id ? assetsZh(parseJSON(db.prepare('SELECT assets_json FROM listings WHERE id=?').get(a.listing_id)?.assets_json, {}), a.game_name || '') : {},
   })) });
 });
 

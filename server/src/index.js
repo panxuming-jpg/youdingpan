@@ -24,6 +24,8 @@ import payRoutes from './routes/pay.js';
 import memberRoutes from './routes/member.js';
 import walletRoutes from './routes/wallet.js';
 import uploadRoutes, { uploadDir } from './routes/upload.js';
+import rightsRoutes from './routes/rights.js';
+import policeRoutes from './routes/police.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -45,6 +47,8 @@ app.use('/api', orderRoutes);
 app.use('/api', appraiseRoutes);
 app.use('/api', compRoutes);
 app.use('/api', aichatRoutes);
+app.use('/api', rightsRoutes);
+app.use('/api', policeRoutes);
 
 // 上传图片静态资源映射（server/uploads → /uploads/**）
 app.use('/uploads', express.static(uploadDir));

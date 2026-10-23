@@ -620,6 +620,12 @@ try { db.exec("ALTER TABLE users ADD COLUMN seller_status TEXT DEFAULT ''"); } c
 try { db.exec('ALTER TABLE users ADD COLUMN seller_reject_reason TEXT DEFAULT ""'); } catch (e) { /* 列已存在 */ }
 try { db.exec('ALTER TABLE users ADD COLUMN seller_ban_until INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ } // 24h 内驳回≥3 暂停发布 72h
 
+// C2C 卖家信用体系：支付宝/微信信用分绑定 + 综合信用等级 + 活跃时间戳（在线状态依据）
+try { db.exec('ALTER TABLE users ADD COLUMN alipay_credit_score INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ } // 0=未绑定
+try { db.exec('ALTER TABLE users ADD COLUMN wechat_credit_score INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ } // 0=未绑定
+try { db.exec("ALTER TABLE users ADD COLUMN credit_grade TEXT DEFAULT ''"); } catch (e) { /* 列已存在 */ } // 综合分→优秀|良好|一般|较差
+try { db.exec('ALTER TABLE users ADD COLUMN last_active_at INTEGER DEFAULT 0'); } catch (e) { /* 列已存在 */ }
+
 db.exec(`
 -- 账号归属凭证（FR-A1）：注册时间页/首次充值账单/实名认证页/常用登录设备截图
 CREATE TABLE IF NOT EXISTS seller_proofs (
@@ -810,4 +816,139 @@ export function compPoolBalance() {
   const inSum = db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM fund_logs WHERE biz='comp_accrual' AND direction='in'").get().s;
   const outSum = db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM fund_logs WHERE biz='comp_payout' AND direction='out'").get().s;
   return Math.round((inSum - outSum) * 100) / 100;
+}
+
+// ---------- C2C 卖家信用 / 在线状态（商品卡片、详情、订单共用） ----------
+const ONLINE_WINDOW = 5 * 60_000; // 5 分钟内有心跳视为在线
+
+export function isSellerOnline(lastActiveAt) {
+  return (lastActiveAt || 0) > Date.now() - ONLINE_WINDOW;
+}
+
+export function sellerActiveText(lastActiveAt) {
+  if (!lastActiveAt) return '离线';
+  const diff = Date.now() - lastActiveAt;
+  if (diff < ONLINE_WINDOW) return '当前在线';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前在线`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前在线`;
+  return `${Math.floor(diff / 86_400_000)} 天前在线`;
+}
+
+// 综合信用等级：取已绑定渠道信用分均值（芝麻/微信支付分区间 350-950）
+export function creditGrade(alipayScore, wechatScore) {
+  const scores = [alipayScore, wechatScore].filter(s => s > 0);
+  if (!scores.length) return '';
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  if (avg >= 750) return '优秀';
+  if (avg >= 700) return '良好';
+  if (avg >= 650) return '一般';
+  return '较差';
+}
+
+export function sellerCreditInfo(userId) {
+  const u = db.prepare('SELECT nickname, alipay_credit_score, wechat_credit_score, credit_grade, last_active_at FROM users WHERE id=?').get(userId);
+  if (!u) return null;
+  return {
+    seller_name: u.nickname || '',
+    credit_grade: u.credit_grade || '',
+    alipay_credit_score: u.alipay_credit_score || 0,
+    wechat_credit_score: u.wechat_credit_score || 0,
+    online: isSellerOnline(u.last_active_at),
+    last_active_text: sellerActiveText(u.last_active_at),
+  };
+}
+
+// ============================================================
+// 模块 F 买家追账号维权 + 模块 G 全国派出所检索（PRD F/G）
+// ============================================================
+db.exec(`
+-- 维权案：买家账号被找回后发起的追账号维权（民事起诉/刑事报案/包赔）
+CREATE TABLE IF NOT EXISTS rights_cases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL, buyer_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending_verify', -- pending_verify|filed|rejected|docs_ready|submitted|in_progress|closed_done|closed
+  claim_types TEXT DEFAULT '["civil"]',          -- civil 民事起诉 / criminal 刑事报案 / compensation 包赔
+  recover_at INTEGER, scenario TEXT, loss REAL, contacted_seller INTEGER DEFAULT 0,
+  materials TEXT DEFAULT '[]',                   -- 买家上传自证图片 URL 数组
+  reject_reason TEXT DEFAULT '', freeze_amount REAL DEFAULT 0,
+  court_name TEXT DEFAULT '', case_no TEXT DEFAULT '', result TEXT DEFAULT '',
+  created_at INTEGER, updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_rc_order ON rights_cases(order_id, status);
+CREATE INDEX IF NOT EXISTS idx_rc_buyer ON rights_cases(buyer_id, created_at DESC);
+
+-- 维权案事件流（只可追加，供详情页时间线与文书事实段落取材）
+CREATE TABLE IF NOT EXISTS rights_events (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER, actor TEXT, type TEXT, content TEXT, created_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_revt_case ON rights_events(case_id, created_at);
+
+-- 维权文书（kind: complaint 民事起诉状 | report_pack 报案材料包 | cert 交易存证证明）
+CREATE TABLE IF NOT EXISTS rights_documents (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER, kind TEXT, title TEXT, html TEXT, created_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_rdoc_case ON rights_documents(case_id, created_at DESC);
+
+-- 全国派出所检索库（演示数据，以官方公布为准）
+CREATE TABLE IF NOT EXISTS police_stations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, province TEXT NOT NULL, city TEXT, district TEXT,
+  address TEXT, phone TEXT, officer TEXT DEFAULT '', officer_badge TEXT DEFAULT '', jurisdiction TEXT DEFAULT '',
+  hours TEXT DEFAULT '', lng REAL, lat REAL, source TEXT DEFAULT '演示数据（以官方公布为准）',
+  updated_at INTEGER, stale INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ps_geo ON police_stations(province, city, district);
+
+-- 派出所信息纠错反馈
+CREATE TABLE IF NOT EXISTS police_feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER, user_id INTEGER, issue TEXT, status TEXT DEFAULT 'open', created_at INTEGER);
+`);
+// 老库升级：反馈处理结果备注列（管理端 resolve 时写入 fixed_text）
+try { db.exec(`ALTER TABLE police_feedback ADD COLUMN fix_note TEXT DEFAULT ''`); } catch (e) { /* 列已存在 */ }
+
+// ---------- 种子数据：演示派出所（仅当表为空时插入；电话统一 110 转接，不编造警官与真实号码） ----------
+const policeCount = db.prepare('SELECT COUNT(*) AS c FROM police_stations').get().c;
+if (policeCount === 0) {
+  // 15 列全占位符；officer/officer_badge 传空串（不编造警官信息），stale 初始 0
+  const insPs = db.prepare(`INSERT INTO police_stations
+    (name, province, city, district, address, phone, officer, officer_badge, jurisdiction, hours, lng, lat, source, updated_at, stale)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const SRC = '演示数据（以官方公布为准）';
+  const stations = [
+    // 北京 4 所
+    ['北京市公安局海淀分局中关村派出所', '北京市', '北京市', '海淀区', '北京市海淀区中关村大街 29 号', '以 110 转接为准', '中关村地区', '24 小时接警', 116.316, 39.983],
+    ['北京市公安局朝阳分局朝外大街派出所', '北京市', '北京市', '朝阳区', '北京市朝阳区朝阳门外大街 16 号', '以 110 转接为准', '朝外地区', '24 小时接警', 116.446, 39.923],
+    ['北京市公安局西城分局广安门内派出所', '北京市', '北京市', '西城区', '北京市西城区广安门内大街 124 号', '以 110 转接为准', '广安门内地区', '24 小时接警', 116.363, 39.891],
+    ['北京市公安局朝阳分局望京派出所', '北京市', '北京市', '朝阳区', '北京市朝阳区望京西园四区 401 号', '以 110 转接为准', '望京地区', '24 小时接警', 116.470, 40.002],
+    // 上海 4 所
+    ['上海市公安局黄浦分局半淞园路派出所', '上海市', '上海市', '黄浦区', '上海市黄浦区中山南路 1029 号', '以 110 转接为准', '半淞园地区', '24 小时接警', 121.488, 31.211],
+    ['上海市公安局徐汇分局徐家汇派出所', '上海市', '上海市', '徐汇区', '上海市徐汇区肇嘉浜路 2044 号', '以 110 转接为准', '徐家汇商圈', '24 小时接警', 121.437, 31.173],
+    ['上海市公安局静安分局南京西路派出所', '上海市', '上海市', '静安区', '上海市静安区南京西路 629 号', '以 110 转接为准', '南京西路地区', '24 小时接警', 121.445, 31.224],
+    ['上海市公安局浦东分局潍坊新村派出所', '上海市', '上海市', '浦东新区', '上海市浦东新区潍坊路 137 号', '以 110 转接为准', '潍坊新村地区', '24 小时接警', 121.521, 31.221],
+    // 广州 4 所
+    ['广州市公安局越秀区分局北京路派出所', '广东省', '广州市', '越秀区', '广州市越秀区中山四路 360 号', '以 110 转接为准', '北京路商圈', '24 小时接警', 113.281, 23.128],
+    ['广州市公安局天河区分局天河南派出所', '广东省', '广州市', '天河区', '广州市天河区天河路 168 号', '以 110 转接为准', '天河城商圈', '24 小时接警', 113.329, 23.130],
+    ['广州市公安局荔湾区分局多宝路派出所', '广东省', '广州市', '荔湾区', '广州市荔湾区多宝路 298 号', '以 110 转接为准', '多宝地区', '24 小时接警', 113.244, 23.116],
+    ['广州市公安局海珠区分局瑞宝派出所', '广东省', '广州市', '海珠区', '广州市海珠区新港西路 882 号', '以 110 转接为准', '瑞宝地区', '24 小时接警', 113.297, 23.092],
+    // 深圳 4 所
+    ['深圳市公安局福田分局华强北派出所', '广东省', '深圳市', '福田区', '深圳市福田区华强北路 1048 号', '以 110 转接为准', '华强北商圈', '24 小时接警', 114.086, 22.543],
+    ['深圳市公安局南山分局粤海派出所', '广东省', '深圳市', '南山区', '深圳市南山区科技园科苑路 15 号', '以 110 转接为准', '粤海街道', '24 小时接警', 113.943, 22.529],
+    ['深圳市公安局罗湖分局东门派出所', '广东省', '深圳市', '罗湖区', '深圳市罗湖区人民南路 1009 号', '以 110 转接为准', '东门商圈', '24 小时接警', 114.122, 22.540],
+    ['深圳市公安局龙岗分局坂田派出所', '广东省', '深圳市', '龙岗区', '深圳市龙岗区坂田街道中康西路 2 号', '以 110 转接为准', '坂田街道', '24 小时接警', 114.055, 22.620],
+    // 杭州 4 所
+    ['杭州市公安局上城区分局小营派出所', '浙江省', '杭州市', '上城区', '杭州市上城区解放路 298 号', '以 110 转接为准', '小营地区', '24 小时接警', 120.175, 30.244],
+    ['杭州市公安局西湖区分局灵隐派出所', '浙江省', '杭州市', '西湖区', '杭州市西湖区天目山路 522 号', '以 110 转接为准', '灵隐地区', '24 小时接警', 120.126, 30.275],
+    ['杭州市公安局拱墅区分局武林派出所', '浙江省', '杭州市', '拱墅区', '杭州市拱墅区武林路 365 号', '以 110 转接为准', '武林地区', '24 小时接警', 120.161, 30.276],
+    ['杭州市公安局滨江区分局西兴派出所', '浙江省', '杭州市', '滨江区', '杭州市滨江区江陵路 106 号', '以 110 转接为准', '西兴地区', '24 小时接警', 120.211, 30.196],
+    // 成都 4 所
+    ['成都市公安局青羊区分局草堂派出所', '四川省', '成都市', '青羊区', '成都市青羊区草堂寺街 19 号', '以 110 转接为准', '草堂地区', '24 小时接警', 104.023, 30.658],
+    ['成都市公安局锦江区分局牛市口派出所', '四川省', '成都市', '锦江区', '成都市锦江区东大路 166 号', '以 110 转接为准', '牛市口地区', '24 小时接警', 104.090, 30.650],
+    ['成都市公安局武侯区分局桂溪派出所', '四川省', '成都市', '武侯区', '成都市武侯区天府大道北段 118 号', '以 110 转接为准', '桂溪地区', '24 小时接警', 104.065, 30.575],
+    ['成都市公安局成华区分局建设路派出所', '四川省', '成都市', '成华区', '成都市成华区建设路 200 号', '以 110 转接为准', '建设路地区', '24 小时接警', 104.101, 30.660],
+    // 武汉 3 所
+    ['武汉市公安局东湖新技术开发区分局关东派出所', '湖北省', '武汉市', '洪山区', '武汉市洪山区珞喻路 667 号', '以 110 转接为准', '光谷地区', '24 小时接警', 114.405, 30.509],
+    ['武汉市公安局江岸区分局大智路派出所', '湖北省', '武汉市', '江岸区', '武汉市江岸区中山大道 1520 号', '以 110 转接为准', '大智路地区', '24 小时接警', 114.290, 30.583],
+    ['武汉市公安局武昌区分局首义派出所', '湖北省', '武汉市', '武昌区', '武汉市武昌区中山路 168 号', '以 110 转接为准', '首义地区', '24 小时接警', 114.305, 30.554],
+    // 西安 3 所
+    ['西安市公安局新城分局西一路派出所', '陕西省', '西安市', '新城区', '西安市新城区西一路 54 号', '以 110 转接为准', '西一路地区', '24 小时接警', 108.948, 34.261],
+    ['西安市公安局碑林分局柏树林派出所', '陕西省', '西安市', '碑林区', '西安市碑林区柏树林街 32 号', '以 110 转接为准', '柏树林地区', '24 小时接警', 108.960, 34.243],
+    ['西安市公安局雁塔分局小寨路派出所', '陕西省', '西安市', '雁塔区', '西安市雁塔区长安南路 102 号', '以 110 转接为准', '小寨商圈', '24 小时接警', 108.945, 34.222],
+  ];
+  for (const [name, province, city, district, address, phone, jurisdiction, hours, lng, lat] of stations) {
+    insPs.run(name, province, city, district, address, phone, '', '', jurisdiction, hours, lng, lat, SRC, now, 0);
+  }
 }

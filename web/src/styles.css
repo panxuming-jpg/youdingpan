@@ -419,6 +419,9 @@ input, select, textarea { font-family: inherit; }
   max-width: 1080px; margin: 24px auto 0; padding: 16px 20px 22px;
   color: var(--text3, #9ca3af); font-size: 11px; text-align: center; line-height: 1.6;
 }
+.footer-links { margin-top: 6px; }
+.footer-links a { color: var(--text3, #9ca3af); text-decoration: none; }
+.footer-links a:hover { color: var(--primary, #2f6bff); text-decoration: underline; }
 
 /* ---------- 咨询与反馈悬浮入口 ---------- */
 .contact-fab {
